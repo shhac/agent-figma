@@ -49,5 +49,5 @@ When you add or change commands, flags, output shapes, or notable behavior, upda
 
 - **`agent-figma usage`** — the top-level reference card compiled into the binary.
 - **`skills/agent-figma/`** — the LLM-facing skill, using incremental disclosure: `SKILL.md` stays short (what the tool is for, the output contract, the common paths, and a router), and detail lives in `references/` files loaded only when needed. A command or flag change touches the matching reference file.
-- **`design-docs/`** — record the decision, not just the code.
+- **`design-docs/`** — record the decision, not just the code. `initial-design.md` covers the core; `build-and-verify.md` covers the instance folding, `diff`, `handoff`, and `compare` features; `mock-figma.md` covers the mock.
 - **`README.md`** — when the change is user-facing.

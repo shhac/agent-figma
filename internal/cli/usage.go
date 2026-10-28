@@ -55,6 +55,15 @@ IMAGES AND ASSETS
   Files land in the cache, named <page>/<node-name>--<id>[@2x].<ext>; each manifest line has path and a
   FileRef "file" (root "cache") for the MCP fs tool.
 
+BUILD, TRACK CHANGES, VERIFY
+  agent-figma handoff <ref> --node id [--out dir] [--scale 2]     one folder to build from: screenshot.png, tree.ndjson,
+      components.json, styles.json, icons/*.svg (one per component), images/*, manifest.json (<=3 Tier 1 + 1 Tier 2)
+  agent-figma diff <ref> [--node id...] [--from version] [--to version] [--render]   what changed between versions:
+      added/removed/moved/changed records with per-field from/to, @diff summary by frame; baseline defaults to the
+      newest older cached version (usually 1 Tier 1 call); --render adds before/after images of changed frames
+  agent-figma compare <ref> --node id --image app.png [--scale auto] [--threshold 24]   where a screenshot differs:
+      match_percent, regions attributed to design nodes, diff_image; scale inferred from the screenshot
+
 LIBRARY AND OTHER READS
   agent-figma components|component-sets|styles list <ref>      Tier 3; main file key (branch links are routed)
   agent-figma components|component-sets|styles get <key>...    @unresolved for unknown keys

@@ -97,6 +97,16 @@ see it; records with `"svg": true` are icons and illustrations best rendered
 (`agent-figma mcp`) read the `file` reference with the `fs` tool instead
 (`fs get cache <file.path>`).
 
+## The three common jobs
+
+| Task | Command |
+|---|---|
+| Build a screen or component | `agent-figma handoff <ref> --node <id> --out ./design/<name>` — one folder: screenshot, tree, components, styles, icons, images |
+| "The designs changed — what's different?" | `agent-figma diff <ref> --node <id>` — per-field changes since the last cached version (`--render` for before/after) |
+| "Does my implementation match?" | screenshot the component, then `agent-figma compare <ref> --node <id> --image shot.png` — match %, differing regions named by design node, diff image |
+
+Details and examples: [references/building-and-verifying.md](references/building-and-verifying.md).
+
 ## Router
 
 | Need | Read |
@@ -107,6 +117,7 @@ see it; records with `"svg": true` are icons and illustrations best rendered
 | `render` flags and scale rules, `--with-related`, `--url-only`, `--out`, `assets fills/export`, manifest fields | [references/rendering-and-assets.md](references/rendering-and-assets.md) |
 | `file index`, components / component sets / styles, variables, comments, versions, dev resources, branch links | [references/library-and-other-reads.md](references/library-and-other-reads.md) |
 | Tiers, seats and plans, cooldowns, stale answers, `--refresh` / `--offline`, cache, prefetch, config keys | [references/rate-limits-and-cache.md](references/rate-limits-and-cache.md) |
+| `handoff`, `diff`, `compare`: building, tracking design changes, verifying an implementation | [references/building-and-verifying.md](references/building-and-verifying.md) |
 | An error or notice and what to do about it | [references/errors.md](references/errors.md) |
 
 `agent-figma usage` prints the built-in reference card; `agent-figma <cmd> --help`

@@ -37,3 +37,12 @@ json|yaml|jsonl` (default NDJSON), `--refresh`, `--offline`, `--no-prefetch`,
 
 Output contract, meta lines, and the rate-limit mental model are in
 [../SKILL.md](../SKILL.md). Error handling: [errors.md](errors.md).
+
+## Building, tracking changes, verifying
+
+| Command | Cost | Detail |
+|---|---|---|
+| `handoff <ref> --node id [--out dir] [--scale 2]` | ≤3 Tier 1 + 1 Tier 2, cached parts free | [building-and-verifying.md](building-and-verifying.md#build-this-ui-in-my-app--handoff) |
+| `diff <ref> [--node id...] [--from v] [--to v] [--render] [--max-changes 200]` | usually 1 Tier 1 (+1 with an uncached `--from`, +2 with `--render`) | [building-and-verifying.md](building-and-verifying.md#the-designer-updated-the-designs--what-changed--diff) |
+| `compare <ref> --node id --image shot.png [--scale] [--threshold 24] [--out]` | ≤1 Tier 1 render (+1 if the node is not cached) | [building-and-verifying.md](building-and-verifying.md#does-my-component-match-the-design--compare) |
+

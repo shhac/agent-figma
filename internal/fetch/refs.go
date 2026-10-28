@@ -10,8 +10,6 @@ const (
 	CostCached   = "cached"
 	CostDownload = "download"
 	CostTier1    = "tier1"
-	CostTier2    = "tier2"
-	CostTier3    = "tier3"
 )
 
 // Related is one @related line.

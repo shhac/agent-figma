@@ -29,7 +29,6 @@ const (
 	MetaFile       = "@file"
 	MetaStyles     = "@styles"
 	MetaRelated    = "@related"
-	MetaTruncated  = "@truncated"
 	MetaBudget     = "@budget"
 	MetaUnresolved = "@unresolved"
 	MetaPagination = out.MetaKeyPagination

@@ -108,7 +108,7 @@ func TestObserve429StartsSharedCooldown(t *testing.T) {
 	if !errors.As(err, &rle) || !rle.Local || rle.RateLimitType != "low" || rle.PlanTier != "org" {
 		t.Fatalf("Acquire during a long cooldown = %v", err)
 	}
-	if l.FilePlan("K") != "org" || l.Observe().SeatClass != SeatLow {
+	if l.Observe().SeatClass != SeatLow {
 		t.Fatal("observations not recorded")
 	}
 

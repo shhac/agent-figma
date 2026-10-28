@@ -69,7 +69,7 @@ CACHE
 OUTPUT
   NDJSON on stdout (--format json|yaml for one envelope). Metadata lines:
     @file {key, name, version, stale?, latest_version?}   @styles {id: {name?, value}}   @budget {calls, cache_hits, prefetched}
-    @related {rel, id, name, cost}   cost: cached (free) | download (CDN only) | tier1 | tier2 | tier3
+    @related {rel, id, name, cost}   cost: cached (free) | download (CDN only, no API budget) | tier1
     @unresolved {id, reason, fixable_by, hint}   @pagination {has_more, next_cursor}
   For nodes, next_cursor is a comma list of node ids whose children were cut: pass it back as --node.
   Errors: {error, fixable_by: agent|human|retry, hint, retry_after_seconds?} JSON on stderr, exit 1.

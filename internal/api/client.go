@@ -22,16 +22,6 @@ import (
 
 const DefaultBaseURL = "https://api.figma.com"
 
-// AuthScheme is how the token is presented.
-type AuthScheme int
-
-const (
-	// AuthFigmaToken sends X-Figma-Token (personal and plan access tokens).
-	AuthFigmaToken AuthScheme = iota
-	// AuthBearer sends Authorization: Bearer (OAuth access tokens).
-	AuthBearer
-)
-
 type Doer interface {
 	Do(*http.Request) (*http.Response, error)
 }
@@ -39,7 +29,6 @@ type Doer interface {
 type Client struct {
 	BaseURL    string
 	Token      string
-	Scheme     AuthScheme
 	HTTPClient Doer
 	Limiter    *ratelimit.Limiter
 	MaxRetries int
@@ -209,11 +198,7 @@ func (c *Client) newRequest(ctx context.Context, path string, query url.Values) 
 		return nil, agenterrors.Wrap(err, agenterrors.FixableByAgent)
 	}
 	req.Header.Set("Accept", "application/json")
-	switch {
-	case c.Token == "":
-	case c.Scheme == AuthBearer:
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	default:
+	if c.Token != "" {
 		req.Header.Set("X-Figma-Token", c.Token)
 	}
 	return req, nil

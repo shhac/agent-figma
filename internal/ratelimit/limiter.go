@@ -210,16 +210,6 @@ func (l *Limiter) Observe() Observation {
 	return obs
 }
 
-// FilePlan is the plan tier Figma last reported for a file, if any.
-func (l *Limiter) FilePlan(fileKey string) string {
-	var s state
-	_ = l.Store.Load(&s)
-	if fs := s.Files[fileKey]; fs != nil {
-		return fs.PlanTier
-	}
-	return ""
-}
-
 func (l *Limiter) seatClass(ps *profileState) string {
 	if c := SeatClass(l.DeclaredSeat); c != "" {
 		return c

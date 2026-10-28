@@ -13,11 +13,14 @@ type versionEntry struct {
 	createdAt   time.Time
 	label       any
 	description any
+	// tree is the document this version serves. A published tree is never
+	// mutated (an edit clones the newest one), so versions share trees freely.
+	tree *tree
 }
 
-// fileState is one fetchable key: the main file or its branch. Both serve the
-// same document; they differ in name, version history, and which endpoints
-// accept them.
+// fileState is one fetchable key: the main file or its branch. Both start
+// from the same document; they differ in name, version history (and so in
+// content once edited), and which endpoints accept them.
 type fileState struct {
 	key      string
 	name     string
@@ -27,10 +30,21 @@ type fileState struct {
 
 func (f *fileState) current() versionEntry { return f.versions[0] }
 
-func (f *fileState) bump() versionEntry {
+func (f *fileState) version(id string) (versionEntry, bool) {
+	for _, v := range f.versions {
+		if v.id == id {
+			return v, true
+		}
+	}
+	return versionEntry{}, false
+}
+
+// bump adds a version one higher and one minute newer than the head, serving
+// doc.
+func (f *fileState) bump(doc *tree) versionEntry {
 	head := f.current()
 	n, _ := strconv.ParseUint(head.id, 10, 64)
-	next := versionEntry{id: strconv.FormatUint(n+1, 10), createdAt: head.createdAt.Add(time.Minute)}
+	next := versionEntry{id: strconv.FormatUint(n+1, 10), createdAt: head.createdAt.Add(time.Minute), tree: doc}
 	f.versions = append([]versionEntry{next}, f.versions...)
 	return next
 }
@@ -49,17 +63,18 @@ func at(s string) time.Time {
 	return t
 }
 
-func initialFiles() map[string]*fileState {
+// initialFiles is both files' starting history, every version serving doc.
+func initialFiles(doc *tree) map[string]*fileState {
 	return map[string]*fileState{
 		FileKey: {
 			key:  FileKey,
 			name: FileName,
 			versions: []versionEntry{
-				{InitialVersion, at("2026-01-15T10:00:00Z"), "Checkout v2", "Adds the card and price row."},
-				{"1000000000000000000", at("2026-01-14T16:30:00Z"), nil, nil},
-				{"999999999999999999", at("2026-01-12T12:00:00Z"), "Button variants", "State variants for Button."},
-				{"999999999999999998", at("2026-01-10T09:45:00Z"), nil, nil},
-				{"999999999999999997", at("2026-01-08T14:00:00Z"), "Initial layout", nil},
+				{InitialVersion, at("2026-01-15T10:00:00Z"), "Checkout v2", "Adds the card and price row.", doc},
+				{"1000000000000000000", at("2026-01-14T16:30:00Z"), nil, nil, doc},
+				{"999999999999999999", at("2026-01-12T12:00:00Z"), "Button variants", "State variants for Button.", doc},
+				{"999999999999999998", at("2026-01-10T09:45:00Z"), nil, nil, doc},
+				{"999999999999999997", at("2026-01-08T14:00:00Z"), "Initial layout", nil, doc},
 			},
 		},
 		BranchKey: {
@@ -67,8 +82,8 @@ func initialFiles() map[string]*fileState {
 			name:    BranchName,
 			mainKey: FileKey,
 			versions: []versionEntry{
-				{InitialBranchVersion, at("2026-01-16T08:00:00Z"), nil, nil},
-				{"1000000000000000100", at("2026-01-15T11:00:00Z"), "Branched", nil},
+				{InitialBranchVersion, at("2026-01-16T08:00:00Z"), nil, nil, doc},
+				{"1000000000000000100", at("2026-01-15T11:00:00Z"), "Branched", nil, doc},
 			},
 		},
 	}

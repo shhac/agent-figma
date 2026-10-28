@@ -11,22 +11,25 @@ import (
 )
 
 type Server struct {
-	mux    *http.ServeMux
-	tree   *tree
-	stats  *statsRecorder
-	faults *faultSet
+	mux *http.ServeMux
+	// fixture is the document as built: every version's starting content and
+	// what the published-library endpoints describe, which edits never touch.
+	fixture *tree
+	stats   *statsRecorder
+	faults  *faultSet
 
 	mu    sync.Mutex
 	files map[string]*fileState
 }
 
 func New() *Server {
+	fixture := newTree(buildDocument())
 	s := &Server{
-		mux:    http.NewServeMux(),
-		tree:   newTree(buildDocument()),
-		stats:  newStatsRecorder(),
-		faults: newFaultSet(),
-		files:  initialFiles(),
+		mux:     http.NewServeMux(),
+		fixture: fixture,
+		stats:   newStatsRecorder(),
+		faults:  newFaultSet(),
+		files:   initialFiles(fixture),
 	}
 	s.routes()
 	return s
@@ -46,21 +49,23 @@ func isAPIPath(path string) bool {
 // Stats returns the API calls seen since New or the last Reset.
 func (s *Server) Stats() Stats { return s.stats.snapshot() }
 
-// Reset clears counters and faults and restores both files' versions.
+// Reset clears counters and faults and restores both files' original
+// version histories, discarding every edit.
 func (s *Server) Reset() {
 	s.stats.reset()
 	s.faults.clear()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.files = initialFiles()
+	s.files = initialFiles(s.fixture)
 }
 
 // SetFaults arms standing fault rules (see the grammar in faults.go);
 // an empty spec clears them.
 func (s *Server) SetFaults(spec string) error { return s.faults.arm(spec) }
 
-// BumpVersion simulates an edit to the file behind key and returns the new
-// version.
+// BumpVersion simulates an edit that changes nothing visible: a new newest
+// version of the file behind key, serving the same content. It returns the
+// new version.
 func (s *Server) BumpVersion(key string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -68,7 +73,7 @@ func (s *Server) BumpVersion(key string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return f.bump().id, true
+	return f.bump(f.current().tree).id, true
 }
 
 func (s *Server) snapshot(key string) (fileState, bool) {

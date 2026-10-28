@@ -15,20 +15,18 @@ func (s *Server) getMe(c *call) {
 	c.ok(me)
 }
 
-// fileVersion is the version a read is served at: the ?version= named, if the
-// file's history has it, otherwise the current one.
+// fileVersion is the version a read is served at, content and all: the
+// ?version= named (404 when the history lacks it), otherwise the newest.
 func fileVersion(c *call, f fileState) (versionEntry, bool) {
 	want := c.r.URL.Query().Get("version")
 	if want == "" {
 		return f.current(), true
 	}
-	for _, v := range f.versions {
-		if v.id == want {
-			return v, true
-		}
+	v, ok := f.version(want)
+	if !ok {
+		c.notFound()
 	}
-	c.notFound()
-	return versionEntry{}, false
+	return v, ok
 }
 
 // depthParam reads ?depth=, which Figma documents as a positive integer;
@@ -75,9 +73,9 @@ func (s *Server) getFile(c *call) {
 	col := &collector{}
 	var document props
 	if ids := splitList(q.Get("ids")); len(ids) > 0 {
-		document = s.tree.renderSelection(s.tree.selectIDs(ids), depth, opts, col)
+		document = v.tree.renderSelection(v.tree.selectIDs(ids), depth, opts, col)
 	} else {
-		document = subtree(s.tree.root, depth, opts, col)
+		document = subtree(v.tree.root, depth, opts, col)
 	}
 	if s.tooLarge(c, len(col.nodes)) {
 		return
@@ -133,7 +131,7 @@ func (s *Server) getNodes(c *call) {
 	nodes := props{}
 	total := 0
 	for _, id := range ids {
-		n := s.tree.byID[id]
+		n := v.tree.byID[id]
 		if n == nil {
 			nodes[id] = nil
 			continue

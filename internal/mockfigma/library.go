@@ -10,7 +10,7 @@ func (s *Server) getFileComponents(c *call) {
 	}
 	items := []any{}
 	for _, comp := range fixtureComponents {
-		items = append(items, publishedComponent(s.tree, comp, c.base))
+		items = append(items, publishedComponent(s.fixture, comp, c.base))
 	}
 	libraryList(c, "components", items)
 }
@@ -21,7 +21,7 @@ func (s *Server) getFileComponentSets(c *call) {
 	}
 	items := []any{}
 	for _, set := range fixtureComponentSets {
-		items = append(items, publishedComponent(s.tree, set, c.base))
+		items = append(items, publishedComponent(s.fixture, set, c.base))
 	}
 	libraryList(c, "component_sets", items)
 }
@@ -52,7 +52,7 @@ func (s *Server) getPublished(c *call, list []componentInfo) {
 		c.notFound()
 		return
 	}
-	c.ok(props{"status": 200, "error": false, "meta": publishedComponent(s.tree, comp, c.base)})
+	c.ok(props{"status": 200, "error": false, "meta": publishedComponent(s.fixture, comp, c.base)})
 }
 
 func (s *Server) getStyle(c *call) {

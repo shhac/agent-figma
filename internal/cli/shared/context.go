@@ -121,7 +121,10 @@ func WithClient(ctx context.Context, flags *GlobalFlags, fn func(context.Context
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(flags.TimeoutMS)*time.Millisecond)
 		defer cancel()
 	}
-	return fn(ctx, resolved)
+	observed := false
+	resolved.Client.On429 = func() { observed = true }
+	err = fn(ctx, resolved)
+	return adviseAfter(resolved, observed, err)
 }
 
 // ExpiryWarningDays is how close to a recorded expiry date commands start warning.

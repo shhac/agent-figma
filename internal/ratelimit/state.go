@@ -11,10 +11,12 @@ type state struct {
 }
 
 type profileState struct {
-	RateLimitType string                `json:"rate_limit_type,omitempty"`
-	ObservedAt    time.Time             `json:"observed_at,omitempty"`
-	UpgradeLink   string                `json:"upgrade_link,omitempty"`
-	Tiers         map[string]*tierState `json:"tiers,omitempty"`
+	RateLimitType string    `json:"rate_limit_type,omitempty"`
+	ObservedAt    time.Time `json:"observed_at,omitempty"`
+	UpgradeLink   string    `json:"upgrade_link,omitempty"`
+	// PlanTier is the plan the latest 429 reported, whatever the file.
+	PlanTier string                `json:"plan_tier,omitempty"`
+	Tiers    map[string]*tierState `json:"tiers,omitempty"`
 }
 
 type tierState struct {

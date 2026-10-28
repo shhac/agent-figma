@@ -215,9 +215,13 @@ func registerCheck(parent *cobra.Command, globals *shared.GlobalFlags) {
 					return agenterrors.New("plan access tokens cannot call /v1/me", agenterrors.FixableByAgent).
 						WithHint("Verify with a file the token can read: 'agent-figma auth check <profile> --file <url-or-key>'.")
 				}
-				record := map[string]any{"status": "ok", "token_source": r.TokenSource, "budget": r.Client.Limiter.Observe()}
+				obs := r.Client.Limiter.Observe()
+				record := map[string]any{"status": "ok", "token_source": r.TokenSource, "budget": obs}
 				if r.Profile != "" {
 					record = profileRecord(config.Read(), r.Profile, record)
+					if s := shared.Suggestions(r.Profile, r.Settings, obs); len(s) > 0 {
+						record["suggestions"] = s
+					}
 				}
 				if fileRef != "" {
 					file, err := checkFile(ctx, r, fileRef)
@@ -274,11 +278,14 @@ func registerList(parent *cobra.Command, globals *shared.GlobalFlags) {
 			cfg := config.Read()
 			rows := make([]any, 0, len(cfg.Profiles))
 			for _, alias := range slices.Sorted(maps.Keys(cfg.Profiles)) {
-				limiter := ratelimit.Limiter{Store: creds.Store{Path: ratelimit.StatePath(config.AppName)}, Profile: alias, DeclaredSeat: cfg.Profiles[alias].Seat}
-				rows = append(rows, profileRecord(cfg, alias, map[string]any{
-					"credential": credential.Storage(alias),
-					"budget":     limiter.Observe(),
-				}))
+				settings := cfg.Profiles[alias]
+				limiter := ratelimit.Limiter{Store: creds.Store{Path: ratelimit.StatePath(config.AppName)}, Profile: alias, DeclaredSeat: settings.Seat, DeclaredPlan: settings.Plan}
+				obs := limiter.Observe()
+				extra := map[string]any{"credential": credential.Storage(alias), "budget": obs}
+				if s := shared.Suggestions(alias, settings, obs); len(s) > 0 {
+					extra["suggestions"] = s
+				}
+				rows = append(rows, profileRecord(cfg, alias, extra))
 			}
 			return output.WriteList(rows, nil, globals.Format)
 		},

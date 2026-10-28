@@ -39,7 +39,10 @@ type Client struct {
 	// OnGrant runs after the limiter admits a request, so callers can warn
 	// about spending a scarce Tier 1 call.
 	OnGrant func(ratelimit.Grant)
-	Sleep   func(context.Context, time.Duration) error
+	// On429 runs after a 429 is observed, so callers can act on what it
+	// revealed about the seat and plan.
+	On429 func()
+	Sleep func(context.Context, time.Duration) error
 
 	mu    sync.Mutex
 	calls map[ratelimit.Tier]int
@@ -124,6 +127,9 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, retry5x
 			// a short Retry-After is sat out without spending a retry.
 			after := retryAfter(header.Get("Retry-After"))
 			rle := c.Limiter.Observe429(tier, fileKey, header, after)
+			if c.On429 != nil {
+				c.On429()
+			}
 			if waited+after > c.MaxWait || waits >= max429Waits {
 				return nil, c.limitError(rle, fileKey)
 			}

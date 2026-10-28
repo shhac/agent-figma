@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shhac/agent-figma/internal/mockfigma"
 )
@@ -658,5 +659,51 @@ func TestCompareMatchesAndLocatesDifferences(t *testing.T) {
 	}
 	if spent := srv.Stats().Tier1 - before; spent > 2 {
 		t.Fatalf("compare spent %d Tier 1 calls", spent)
+	}
+}
+
+func TestSettingsNudges(t *testing.T) {
+	srv := mockEnv(t)
+	t.Setenv("AGENT_FIGMA_TOKEN", "")
+	mustRun(t, "auth", "add", "work", "--token", "fake-token", "--seat", "full", "--plan", "starter")
+	if err := srv.SetFaults("429:tier1:retry=7200:type=low:plan=org"); err != nil {
+		t.Fatal(err)
+	}
+	r := run(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	hint, _ := r.errJSON(t)["hint"].(string)
+	if !strings.Contains(hint, "auth update work --seat view") || !strings.Contains(hint, "auth update work --plan org") {
+		t.Fatalf("the 429 should suggest fixing the declarations: %s", hint)
+	}
+	r = mustRun(t, "auth", "check")
+	if s, _ := r.lines(t)[0]["suggestions"].([]any); len(s) != 2 {
+		t.Fatalf("auth check should list suggestions: %s", r.stdout)
+	}
+	mustRun(t, "auth", "update", "work", "--seat", "view", "--plan", "org")
+	if r = mustRun(t, "auth", "list"); strings.Contains(r.stdout, "suggestions") {
+		t.Fatalf("fixed declarations should clear suggestions: %s", r.stdout)
+	}
+}
+
+func TestShortRateLimitPrintsNudgeAsNotice(t *testing.T) {
+	srv := mockEnv(t)
+	t.Setenv("AGENT_FIGMA_TOKEN", "")
+	mustRun(t, "auth", "add", "work", "--token", "fake-token")
+	if err := srv.SetFaults("429:tier3:retry=1:count=1:plan=pro"); err != nil {
+		t.Fatal(err)
+	}
+	r := mustRun(t, "file", "meta", fileKey)
+	if !strings.Contains(r.stderr, "auth update work --plan pro") {
+		t.Fatalf("a waited-out 429 should still nudge: %s", r.stderr)
+	}
+}
+
+func TestRevokedTokenBeforeExpiryNudges(t *testing.T) {
+	mockEnv(t)
+	t.Setenv("AGENT_FIGMA_TOKEN", "")
+	future := time.Now().AddDate(0, 1, 0).Format("2006-01-02")
+	mustRun(t, "auth", "add", "work", "--token", mockfigma.ExpiredToken, "--expires", future)
+	r := run(t, "file", "meta", fileKey)
+	if hint, _ := r.errJSON(t)["hint"].(string); !strings.Contains(hint, "auth update work --form --expires") {
+		t.Fatalf("expected a re-auth nudge: %s", r.stderr)
 	}
 }

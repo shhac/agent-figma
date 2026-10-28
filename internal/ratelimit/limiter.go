@@ -159,6 +159,9 @@ func (l *Limiter) Observe429(tier Tier, fileKey string, h http.Header, retryAfte
 		if rle.UpgradeLink != "" {
 			ps.UpgradeLink = rle.UpgradeLink
 		}
+		if rle.PlanTier != "" {
+			ps.PlanTier = rle.PlanTier
+		}
 		if rle.PlanTier != "" && fileKey != "" {
 			s.Files[fileKey] = &fileState{PlanTier: rle.PlanTier, ObservedAt: now}
 		}
@@ -176,6 +179,7 @@ func (l *Limiter) Observe429(tier Tier, fileKey string, h http.Header, retryAfte
 // Observation is what is known about a profile's budget, for auth check.
 type Observation struct {
 	RateLimitType string            `json:"observed_rate_limit_type,omitempty"`
+	PlanTier      string            `json:"observed_plan,omitempty"`
 	ObservedAt    *time.Time        `json:"observed_at,omitempty"`
 	SeatClass     string            `json:"effective_seat_class"`
 	Cooldowns     map[string]string `json:"cooldowns,omitempty"`
@@ -187,7 +191,7 @@ func (l *Limiter) Observe() Observation {
 	_ = l.Store.Load(&s)
 	s.ensure()
 	ps := s.profile(l.Profile)
-	obs := Observation{RateLimitType: ps.RateLimitType, SeatClass: l.seatClass(ps)}
+	obs := Observation{RateLimitType: ps.RateLimitType, PlanTier: ps.PlanTier, SeatClass: l.seatClass(ps)}
 	if !ps.ObservedAt.IsZero() {
 		at := ps.ObservedAt
 		obs.ObservedAt = &at

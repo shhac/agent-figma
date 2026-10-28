@@ -63,13 +63,15 @@ Unpublished components appear only once their nodes are cached.`,
 				variants := map[string][]map[string]any{}
 				var standalone []map[string]any
 				for _, c := range components {
-					rec := libraryRecord(c)
-					rec["kind"] = "component"
-					if setID, ok := rec["set_node_id"].(string); ok {
-						rec["props"] = variantNameProps(c.Name)
-						variants[setID] = append(variants[setID], rec)
+					if f := c.ContainingFrame; f != nil && f.ContainingComponentSet != nil {
+						setID := f.ContainingComponentSet.NodeID
+						variants[setID] = append(variants[setID], map[string]any{
+							"node_id": c.NodeID, "key": c.Key, "props": variantNameProps(c.Name), "thumbnail_url": c.ThumbnailURL,
+						})
 						continue
 					}
+					rec := libraryRecord(c)
+					rec["kind"] = "component"
 					standalone = append(standalone, rec)
 				}
 				for _, s := range sets {

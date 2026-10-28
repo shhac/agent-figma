@@ -126,6 +126,17 @@ func (s *Session) Meta(ctx context.Context) (figma.FileMeta, error) {
 // CurrentVersion decides which version to answer from. An empty result means
 // it could not be determined; the next Tier 1 response will say.
 func (s *Session) CurrentVersion(ctx context.Context) (string, error) {
+	version, err := s.currentVersion(ctx)
+	if err == nil && version != "" {
+		s.FileInfo.Version = version
+		if st, lerr := s.File.LoadNodes(version); lerr == nil && st.Name != "" {
+			s.FileInfo.Name, s.FileInfo.LastModified, s.FileInfo.EditorType = st.Name, st.LastModified, st.EditorType
+		}
+	}
+	return version, err
+}
+
+func (s *Session) currentVersion(ctx context.Context) (string, error) {
 	head, haveHead := s.File.Head()
 	if haveHead {
 		s.FileInfo.Name = head.Name

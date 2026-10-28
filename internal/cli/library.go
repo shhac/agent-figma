@@ -100,5 +100,10 @@ func libraryRecord(c figma.PublishedComponent) map[string]any {
 			rec["set_node_id"] = s.NodeID
 		}
 	}
+	for k, v := range rec {
+		if v == "" {
+			delete(rec, k)
+		}
+	}
 	return rec
 }

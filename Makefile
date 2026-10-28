@@ -6,6 +6,15 @@ GOCACHE ?= $(CURDIR)/.cache/go-build
 build:
 	GOCACHE=$(GOCACHE) go build -buildvcs=false -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/agent-figma
 
+build-mock:
+	GOCACHE=$(GOCACHE) go build -buildvcs=false -o mockfigma ./cmd/mockfigma
+
+mock:
+	GOCACHE=$(GOCACHE) go run ./cmd/mockfigma
+
+mock-dev:
+	AGENT_FIGMA_BASE_URL=http://127.0.0.1:12112 AGENT_FIGMA_TOKEN=fake-token GOCACHE=$(GOCACHE) go run ./cmd/agent-figma $(ARGS)
+
 test:
 	GOCACHE=$(GOCACHE) go test ./... -count=1
 
@@ -24,6 +33,7 @@ fmt:
 
 clean:
 	rm -f $(BINARY)
+	rm -f mockfigma
 	rm -rf dist/
 
 dev:
@@ -32,4 +42,4 @@ dev:
 vet:
 	GOCACHE=$(GOCACHE) go vet ./...
 
-.PHONY: build test test-short lint fmt clean dev vet
+.PHONY: build build-mock mock mock-dev test test-short lint fmt clean dev vet

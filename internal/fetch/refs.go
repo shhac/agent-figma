@@ -63,6 +63,17 @@ func RelatedTo(store *cache.NodeStore, ids []string) []Related {
 		if stored == nil {
 			continue
 		}
+		node, _ := store.Node(id)
+		if parent, ok := store.Node(stored.Parent); ok && parent.Type == "COMPONENT_SET" {
+			add(describe("component_set", id, parent.ID))
+			if ps := store.Nodes[parent.ID]; ps != nil {
+				for _, sib := range ps.Children {
+					r := describe("variant", id, sib)
+					r.Props = variantPropsOf(store, sib)
+					add(r)
+				}
+			}
+		}
 		for _, a := range store.Ancestors(id) {
 			n, ok := store.Node(a)
 			if !ok || n.Type == "DOCUMENT" {
@@ -78,17 +89,6 @@ func RelatedTo(store *cache.NodeStore, ids []string) []Related {
 				r.Cost = CostTier1
 			}
 			add(r)
-		}
-		node, _ := store.Node(id)
-		if parent, ok := store.Node(stored.Parent); ok && parent.Type == "COMPONENT_SET" {
-			add(describe("component_set", id, parent.ID))
-			if ps := store.Nodes[parent.ID]; ps != nil {
-				for _, sib := range ps.Children {
-					r := describe("variant", id, sib)
-					r.Props = variantPropsOf(store, sib)
-					add(r)
-				}
-			}
 		}
 		if node.Type == "INSTANCE" && node.ComponentID != "" {
 			c, known := store.Components[node.ComponentID]

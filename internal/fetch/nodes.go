@@ -52,7 +52,7 @@ func (s *Session) Nodes(ctx context.Context, ids []string, depth int) (*NodesRes
 	}
 	extras := []string{}
 	if s.prefetching() {
-		extras = relatedIDs(known, need, maxNodeExtras)
+		extras = relatedIDs(known, need, s.cachedVariantSets(version), maxNodeExtras)
 	}
 	result, err := s.fetchNodes(ctx, need, extras, depth)
 	if err != nil {
@@ -142,7 +142,7 @@ func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth i
 		resp, err = s.getFile(ctx, query("ids", joinIDs(need)))
 	}
 	if api.IsRequestTooLarge(err) {
-		for _, d := range []int{4, 2} {
+		for _, d := range []int{4, 2, 1} {
 			res, nerr := s.fetchNodesEndpoint(ctx, need, nil, d)
 			if api.IsRequestTooLarge(nerr) {
 				continue

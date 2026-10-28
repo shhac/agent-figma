@@ -64,3 +64,19 @@ func (s *Session) Library(ctx context.Context, kind string) ([]figma.PublishedCo
 	}
 	return list, nil
 }
+
+// cachedVariantSets maps published variant node ids to their component set
+// node ids, from the library cache only; it never calls Figma.
+func (s *Session) cachedVariantSets(version string) map[string]string {
+	var cached libraryCache
+	if version == "" || s.File.JSONMap(version, "library").Load(&cached) != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, c := range cached.Lists[KindComponents] {
+		if f := c.ContainingFrame; f != nil && f.ContainingComponentSet != nil {
+			out[c.NodeID] = f.ContainingComponentSet.NodeID
+		}
+	}
+	return out
+}

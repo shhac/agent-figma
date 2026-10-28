@@ -84,6 +84,7 @@ func registerOutline(parent *cobra.Command, globals *shared.GlobalFlags) {
 						return err
 					}
 					store, roots, missing = res.Store, ref.NodeIDs, res.Missing
+					noteCut(res.Cut)
 				} else {
 					store, err = session.Document(ctx, depth+1)
 					if err != nil {

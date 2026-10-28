@@ -57,6 +57,7 @@ set and sibling variants, main components) with what reading them would cost, @p
 				if err != nil {
 					return err
 				}
+				noteCut(res.Cut)
 				if raw {
 					return writeRaw(globals, session, res, ref.NodeIDs, depth)
 				}
@@ -96,6 +97,16 @@ func writeNodes(globals *shared.GlobalFlags, session *fetch.Session, result simp
 		stream.Meta(output.MetaPagination, map[string]any{"has_more": true, "next_cursor": strings.Join(result.Next, ",")})
 	}
 	return shared.Finish(stream, session)
+}
+
+// noteCut warns when Figma refused whole subtrees as too large, so what is
+// shown stops at a depth limit rather than at the real leaves.
+func noteCut(cut []string) {
+	if len(cut) == 0 {
+		return
+	}
+	output.Notice("Figma refused the full subtree of "+strings.Join(cut, ", ")+" as too large; showing a depth-limited tree",
+		"Records marked truncated have more children; request them with 'nodes get --node <id>'.")
 }
 
 func unresolvedNode(id string) map[string]any {

@@ -116,15 +116,17 @@ func (s *Session) answerFromCache(version string, satisfied func(*cache.NodeStor
 	return nil, nil
 }
 
-// knownStore is the best cached knowledge for planning extras.
+// knownStore is the best cached knowledge for planning extras: the current
+// version's store, or the newest older one when the current has nothing yet
+// (an edit just bumped the version). Structure rarely changes between edits,
+// so an older version is a good guide to what is related.
 func (s *Session) knownStore(version string) *cache.NodeStore {
-	if version != "" {
-		if st, err := s.File.LoadNodes(version); err == nil {
-			return st
+	candidates := append([]string{version}, s.File.Versions()...)
+	for _, v := range candidates {
+		if v == "" {
+			continue
 		}
-	}
-	for _, v := range s.File.Versions() {
-		if st, err := s.File.LoadNodes(v); err == nil {
+		if st, err := s.File.LoadNodes(v); err == nil && len(st.Nodes) > 0 {
 			return st
 		}
 	}

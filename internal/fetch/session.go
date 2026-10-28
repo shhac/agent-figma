@@ -179,7 +179,7 @@ func (s *Session) currentVersion(ctx context.Context) (string, error) {
 }
 
 func offlineMiss() error {
-	return agenterrors.New("nothing cached for this file and --offline forbids calling Figma", agenterrors.FixableByAgent).
+	return agenterrors.New("the cache cannot answer this and --offline forbids calling Figma", agenterrors.FixableByAgent).
 		WithHint("Drop --offline, or check 'agent-figma cache status' for the profile and file key in use.")
 }
 

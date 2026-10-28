@@ -57,16 +57,18 @@ type variableCollection struct {
 }
 
 type variable struct {
-	ID                   string                     `json:"id"`
-	Name                 string                     `json:"name"`
-	Key                  string                     `json:"key"`
-	VariableCollectionID string                     `json:"variableCollectionId"`
-	ResolvedType         string                     `json:"resolvedType"`
-	Description          string                     `json:"description"`
-	Scopes               []string                   `json:"scopes"`
-	Remote               bool                       `json:"remote"`
-	CodeSyntax           map[string]string          `json:"codeSyntax"`
-	ValuesByMode         map[string]json.RawMessage `json:"valuesByMode"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Key                  string `json:"key"`
+	VariableCollectionID string `json:"variableCollectionId"`
+	ResolvedType         string `json:"resolvedType"`
+	// ResolvedDataType is the published-variables spelling of ResolvedType.
+	ResolvedDataType string                     `json:"resolvedDataType"`
+	Description      string                     `json:"description"`
+	Scopes           []string                   `json:"scopes"`
+	Remote           bool                       `json:"remote"`
+	CodeSyntax       map[string]string          `json:"codeSyntax"`
+	ValuesByMode     map[string]json.RawMessage `json:"valuesByMode"`
 }
 
 func registerVariables(root *cobra.Command, globals *shared.GlobalFlags) {
@@ -140,7 +142,7 @@ func variableRecord(v variable, collections map[string]variableCollection) map[s
 	}
 	return pruned(map[string]any{
 		"kind": "variable", "id": v.ID, "name": v.Name, "key": v.Key,
-		"collection_id": v.VariableCollectionID, "collection": c.Name, "type": strings.ToLower(v.ResolvedType),
+		"collection_id": v.VariableCollectionID, "collection": c.Name, "type": strings.ToLower(cmpOr(v.ResolvedType, v.ResolvedDataType)),
 		"description": v.Description, "scopes": v.Scopes, "remote": v.Remote, "code_syntax": v.CodeSyntax, "values": values,
 	})
 }

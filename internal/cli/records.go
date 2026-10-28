@@ -29,6 +29,10 @@ func pruned(rec map[string]any) map[string]any {
 			if len(x) == 0 {
 				delete(rec, k)
 			}
+		case []map[string]string:
+			if len(x) == 0 {
+				delete(rec, k)
+			}
 		case map[string]any:
 			if len(x) == 0 {
 				delete(rec, k)

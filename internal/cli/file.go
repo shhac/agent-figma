@@ -35,7 +35,7 @@ func registerFile(root *cobra.Command, globals *shared.GlobalFlags) {
 				if err != nil {
 					return err
 				}
-				record := map[string]any{
+				record := pruned(map[string]any{
 					"key":             ref.FileKey,
 					"branch_key":      ref.BranchKey,
 					"name":            meta.Name,
@@ -46,7 +46,7 @@ func registerFile(root *cobra.Command, globals *shared.GlobalFlags) {
 					"role":            meta.Role,
 					"link_access":     meta.LinkAccess,
 					"thumbnail_url":   meta.ThumbnailURL,
-				}
+				})
 				if meta.LastTouchedBy != nil {
 					record["last_touched_by"] = meta.LastTouchedBy.Handle
 				}

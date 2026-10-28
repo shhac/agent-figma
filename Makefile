@@ -21,6 +21,10 @@ test:
 test-short:
 	GOCACHE=$(GOCACHE) go test ./... -count=1 -short
 
+# Opt-in: reads a real file. Needs FIGMA_TOKEN and AGENT_FIGMA_LIVE_URL; skips without them.
+live:
+	GOCACHE=$(GOCACHE) go test -tags live ./internal/cli -run TestLive -v -count=1
+
 lint:
 	golangci-lint run ./...
 
@@ -42,4 +46,4 @@ dev:
 vet:
 	GOCACHE=$(GOCACHE) go vet ./...
 
-.PHONY: build build-mock mock mock-dev test test-short lint fmt clean dev vet
+.PHONY: live build build-mock mock mock-dev test test-short lint fmt clean dev vet

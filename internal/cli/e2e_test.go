@@ -1,77 +1,12 @@
 package cli
 
 import (
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/shhac/agent-figma/internal/mockfigma"
 )
-
-const fileKey = mockfigma.FileKey
-
-func fileLink(node string) string {
-	link := "https://www.figma.com/design/" + fileKey + "/Example-File"
-	if node != "" {
-		link += "?node-id=" + strings.ReplaceAll(node, ":", "-")
-	}
-	return link
-}
-
-// mockEnv isolates XDG dirs and points the CLI at a fresh mock Figma.
-func mockEnv(t *testing.T) *mockfigma.Server {
-	t.Helper()
-	isolate(t)
-	srv := mockfigma.New()
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	t.Setenv("AGENT_FIGMA_BASE_URL", ts.URL)
-	t.Setenv("AGENT_FIGMA_TOKEN", "fake-token")
-	return srv
-}
-
-func mustRun(t *testing.T, args ...string) result {
-	t.Helper()
-	r := run(t, args...)
-	if r.code != 0 {
-		t.Fatalf("%v failed: %s", args, r.stderr)
-	}
-	return r
-}
-
-// meta returns the value of the first @key line.
-func (r result) meta(t *testing.T, key string) any {
-	t.Helper()
-	for _, line := range r.lines(t) {
-		if v, ok := line[key]; ok {
-			return v
-		}
-	}
-	return nil
-}
-
-func (r result) metaAll(t *testing.T, key string) []map[string]any {
-	t.Helper()
-	var out []map[string]any
-	for _, line := range r.lines(t) {
-		if v, ok := line[key].(map[string]any); ok {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-func (r result) records(t *testing.T) map[string]map[string]any {
-	t.Helper()
-	out := map[string]map[string]any{}
-	for _, line := range r.lines(t) {
-		if id, ok := line["id"].(string); ok {
-			out[id] = line
-		}
-	}
-	return out
-}
 
 func TestOutlineIsCachedAfterOneTier1Call(t *testing.T) {
 	srv := mockEnv(t)
@@ -484,5 +419,61 @@ func TestWithRelatedDownloadsCachedSiblings(t *testing.T) {
 	}
 	if srv.Stats().Tier1 != before {
 		t.Fatal("sibling URLs were cached; no render call needed")
+	}
+}
+
+func TestMetaForbiddenFallsBackWithNotice(t *testing.T) {
+	srv := mockEnv(t)
+	if err := srv.SetFaults("status:403:/v1/files/" + fileKey + "/meta"); err != nil {
+		t.Fatal(err)
+	}
+	r := mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeTotalText)
+	if !strings.Contains(r.stderr, "file_metadata:read") || r.records(t)[mockfigma.NodeTotalText] == nil {
+		t.Fatalf("expected an answer plus a scope notice: %s %s", r.stdout, r.stderr)
+	}
+	if file, _ := r.meta(t, "@file").(map[string]any); file["version"] != mockfigma.InitialVersion {
+		t.Fatalf("the Tier 1 response's version should be used: %v", file)
+	}
+}
+
+func TestMetaOutageUsesLastKnownVersion(t *testing.T) {
+	srv := mockEnv(t)
+	mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	mustRun(t, "config", "set", "cache_fresh_s", "0")
+	if err := srv.SetFaults("status:503:/v1/files/" + fileKey + "/meta"); err != nil {
+		t.Fatal(err)
+	}
+	before := srv.Stats().Tier1
+	r := mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	if srv.Stats().Tier1 != before || !strings.Contains(r.stderr, "last known version") {
+		t.Fatalf("a /meta outage should fall back to the cache: %s", r.stderr)
+	}
+	// With nothing cached for another file, the outage is the answer.
+	mustRun(t, "cache", "clear", "--all")
+	if r := run(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout); r.code == 0 || r.errJSON(t)["fixable_by"] != "retry" {
+		t.Fatalf("no head and /meta down should fail retryably: %s", r.stderr)
+	}
+}
+
+func TestCacheClearTargetsTheSelectedPartition(t *testing.T) {
+	mockEnv(t)
+	mustRun(t, "file", "outline", fileKey)
+	t.Setenv("AGENT_FIGMA_TOKEN", "")
+	mustRun(t, "auth", "add", "work", "--token", "fake-token")
+	mustRun(t, "file", "outline", fileKey)
+	scopes := map[string]bool{}
+	for _, row := range mustRun(t, "cache", "status").lines(t) {
+		scopes[row["scope"].(string)] = true
+	}
+	if !scopes["work"] {
+		t.Fatalf("expected the profile's partition: %v", scopes)
+	}
+	mustRun(t, "cache", "clear", "--all")
+	if rows := mustRun(t, "cache", "status").lines(t); len(rows) != 0 {
+		t.Fatalf("profile partition should be empty: %v", rows)
+	}
+	t.Setenv("AGENT_FIGMA_TOKEN", "fake-token")
+	if rows := mustRun(t, "cache", "status").lines(t); len(rows) != 1 || rows[0]["scope"] != "env" {
+		t.Fatalf("the env partition must survive clearing the profile's: %v", rows)
 	}
 }

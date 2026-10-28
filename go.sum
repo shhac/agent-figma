@@ -10,6 +10,8 @@ github.com/dchest/jsmin v0.0.0-20220218165748-59f39799265f h1:OGqDDftRTwrvUoL6pO
 github.com/dchest/jsmin v0.0.0-20220218165748-59f39799265f/go.mod h1:Dv9D0NUlAsaQcGQZa5kc5mqR9ua72SmA8VXi4cd+cBw=
 github.com/godbus/dbus/v5 v5.2.2 h1:TUR3TgtSVDmjiXOgAAyaZbYmIeP3DPkld3jgKGV8mXQ=
 github.com/godbus/dbus/v5 v5.2.2/go.mod h1:3AAv2+hPq5rdnr5txxxRwiGjPXamgoIHgz9FPBfOp3c=
+github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
+github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/josephspurrier/goversioninfo v1.4.1 h1:5LvrkP+n0tg91J9yTkoVnt/QgNnrI1t4uSsWjIonrqY=
@@ -27,6 +29,10 @@ github.com/shhac/lib-agent-cli v0.28.1 h1:AlGnGBH8AqnSgYgT+5p2chaoy1fkbVrolkCSk3
 github.com/shhac/lib-agent-cli v0.28.1/go.mod h1:+f4RsI2kX5rkh/BQW2Sr5KFXeZud/vL9RmwsUjeH7Fc=
 github.com/shhac/lib-agent-keyring v0.1.1 h1:cAwFr0UzlQ0xsgO0zY607lmwhvSamPN6Tp1DCNJO7hg=
 github.com/shhac/lib-agent-keyring v0.1.1/go.mod h1:nTk+YfRDc2dc8Nghd1o9w4c40xU8Pqx/UgToN0yGvZ8=
+github.com/shhac/lib-agent-mcp v0.23.2 h1:jHgZFEZH2RLZpxMdeFe2tUmv6B7XUFQZdP6+DaYYh9I=
+github.com/shhac/lib-agent-mcp v0.23.2/go.mod h1:XShbumGMp4FPDZM2Utn/O5PgxdFt7aNUvHVKfw1+pA0=
+github.com/shhac/lib-agent-oauth v0.7.1 h1:/ysYhPZi+7evkryQYAAuSlqN42RcGvqiwNjMIayny4A=
+github.com/shhac/lib-agent-oauth v0.7.1/go.mod h1:IL7jpL5DCcOZ4rHzIBQOxVYHtP53Q3Y0sMIcgSE4ibk=
 github.com/shhac/lib-agent-output v0.12.0 h1:Xlfvjew68PGwc3oMPp58AHfiSsHaaY/gULe11Cc0Ft8=
 github.com/shhac/lib-agent-output v0.12.0/go.mod h1:YyO2KSKAZxRrCJGanfB6qAyV0DvG+GSsZNShQoLslT0=
 github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=
@@ -41,6 +47,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/zalando/go-keyring v0.2.8 h1:6sD/Ucpl7jNq10rM2pgqTs0sZ9V3qMrqfIIy5YPccHs=
 github.com/zalando/go-keyring v0.2.8/go.mod h1:tsMo+VpRq5NGyKfxoBVjCuMrG47yj8cmakZDO5QGii0=
+go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
+go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 golang.org/x/image v0.20.0 h1:7cVCUjQwfL18gyBJOmYvptfSHS8Fb3YUDtfLIZ7Nbpw=
 golang.org/x/image v0.20.0/go.mod h1:0a88To4CYVBAHp5FXJm8o7QbUl37Vd85ply1vyD8auM=

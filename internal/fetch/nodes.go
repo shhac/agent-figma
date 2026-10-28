@@ -1,0 +1,301 @@
+package fetch
+
+import (
+	"context"
+	"encoding/json"
+	"slices"
+	"strconv"
+
+	"github.com/shhac/agent-figma/internal/api"
+	"github.com/shhac/agent-figma/internal/cache"
+	"github.com/shhac/agent-figma/internal/figma"
+)
+
+// maxNodeExtras caps speculative ids per node call; each brings its subtree.
+const maxNodeExtras = 10
+
+// NodesResult is what a node query answered with.
+type NodesResult struct {
+	Store *cache.NodeStore
+	// Missing are requested ids Figma does not have.
+	Missing []string
+	// Cut are requested ids whose subtrees came back depth-limited because
+	// Figma refused the full request as too large.
+	Cut []string
+}
+
+// Nodes makes sure each id's subtree is cached to depth levels (cache.Full
+// for whole subtrees) and returns the store holding it.
+func (s *Session) Nodes(ctx context.Context, ids []string, depth int) (*NodesResult, error) {
+	version, err := s.CurrentVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	satisfied := func(st *cache.NodeStore) bool {
+		for _, id := range ids {
+			if !st.Has(id, depth) {
+				return false
+			}
+		}
+		return true
+	}
+	store, err := s.answerFromCache(version, satisfied)
+	if err != nil || store != nil {
+		return &NodesResult{Store: store}, err
+	}
+	known := s.knownStore(version)
+	var need []string
+	for _, id := range ids {
+		if !known.Has(id, depth) {
+			need = append(need, id)
+		}
+	}
+	extras := []string{}
+	if s.prefetching() {
+		extras = relatedIDs(known, need, maxNodeExtras)
+	}
+	result, err := s.fetchNodes(ctx, need, extras, depth)
+	if err != nil {
+		return nil, err
+	}
+	// Ids already cached under this version count as answered.
+	result.Missing = slices.DeleteFunc(result.Missing, func(id string) bool { return result.Store.Has(id, 0) })
+	return result, nil
+}
+
+// Document makes sure the file's tree is cached to depth levels from the
+// document root.
+func (s *Session) Document(ctx context.Context, depth int) (*cache.NodeStore, error) {
+	version, err := s.CurrentVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	satisfied := func(st *cache.NodeStore) bool { return st.Root != "" && st.Has(st.Root, depth) }
+	store, err := s.answerFromCache(version, satisfied)
+	if err != nil || store != nil {
+		return store, err
+	}
+	for d := depth; ; d-- {
+		resp, err := s.getFile(ctx, query("depth", depthParam(d)))
+		if api.IsRequestTooLarge(err) && d > 1 {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		return s.storeFile(resp, nil, d)
+	}
+}
+
+// answerFromCache returns a store that satisfies the query: the current
+// version's, an older version's when stale answers are allowed (or offline),
+// or nil when Figma must be asked. Offline with no answer is an error.
+func (s *Session) answerFromCache(version string, satisfied func(*cache.NodeStore) bool) (*cache.NodeStore, error) {
+	if version != "" {
+		if st, err := s.File.LoadNodes(version); err == nil && satisfied(st) {
+			s.CacheHits++
+			s.noteStore(st, false, "")
+			return st, nil
+		}
+	}
+	if s.Opts.Offline || s.servesStale() {
+		for _, older := range s.File.Versions() {
+			if older == version {
+				continue
+			}
+			if st, err := s.File.LoadNodes(older); err == nil && satisfied(st) {
+				s.CacheHits++
+				s.noteStore(st, version != "", version)
+				return st, nil
+			}
+		}
+	}
+	if s.Opts.Offline {
+		return nil, offlineMiss()
+	}
+	return nil, nil
+}
+
+// knownStore is the best cached knowledge for planning extras.
+func (s *Session) knownStore(version string) *cache.NodeStore {
+	if version != "" {
+		if st, err := s.File.LoadNodes(version); err == nil {
+			return st
+		}
+	}
+	for _, v := range s.File.Versions() {
+		if st, err := s.File.LoadNodes(v); err == nil {
+			return st
+		}
+	}
+	return cache.NewNodeStore(version)
+}
+
+func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth int) (*NodesResult, error) {
+	if depth != cache.Full {
+		return s.fetchNodesEndpoint(ctx, need, extras, depth)
+	}
+	all := append(append([]string{}, need...), extras...)
+	resp, err := s.getFile(ctx, query("ids", joinIDs(all)))
+	if err != nil && len(extras) > 0 && retryableWithoutExtras(err) {
+		extras = nil
+		resp, err = s.getFile(ctx, query("ids", joinIDs(need)))
+	}
+	if api.IsRequestTooLarge(err) {
+		for _, d := range []int{4, 2} {
+			res, nerr := s.fetchNodesEndpoint(ctx, need, nil, d)
+			if api.IsRequestTooLarge(nerr) {
+				continue
+			}
+			if nerr == nil {
+				res.Cut = need
+			}
+			return res, nerr
+		}
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	store, err := s.storeFile(resp, all, cache.Full)
+	if err != nil {
+		return nil, err
+	}
+	s.Prefetched.Nodes += countNew(store, extras)
+	var missing []string
+	for _, id := range need {
+		if !store.Has(id, 0) {
+			missing = append(missing, id)
+		}
+	}
+	return &NodesResult{Store: store, Missing: missing}, nil
+}
+
+func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string, depth int) (*NodesResult, error) {
+	all := append(append([]string{}, need...), extras...)
+	get := func(ids []string) (*figma.NodesResponse, error) {
+		raw, err := s.Client.Get(ctx, "/v1/files/"+s.Key()+"/nodes", query("ids", joinIDs(ids), "depth", depthParam(depth)))
+		if err != nil {
+			return nil, err
+		}
+		var resp figma.NodesResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return nil, unexpected(err, "nodes")
+		}
+		return &resp, nil
+	}
+	resp, err := get(all)
+	if err != nil && len(extras) > 0 && retryableWithoutExtras(err) {
+		extras = nil
+		resp, err = get(need)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var missing []string
+	store, err := s.File.UpdateNodes(s.versionOf(resp.Version), func(st *cache.NodeStore) error {
+		var merr error
+		missing, merr = st.MergeNodes(resp, depth)
+		return merr
+	})
+	if err != nil {
+		return nil, cacheError(err)
+	}
+	s.recordVersion(resp.Version, resp.Name)
+	s.noteStore(store, false, "")
+	s.Prefetched.Nodes += countNew(store, extras)
+	missing = slices.DeleteFunc(missing, func(id string) bool { return !slices.Contains(need, id) })
+	return &NodesResult{Store: store, Missing: missing}, nil
+}
+
+func (s *Session) getFile(ctx context.Context, q map[string][]string) (*figma.FileResponse, error) {
+	raw, err := s.Client.Get(ctx, "/v1/files/"+s.Key(), q)
+	if err != nil {
+		return nil, err
+	}
+	var resp figma.FileResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, unexpected(err, "file")
+	}
+	return &resp, nil
+}
+
+func (s *Session) storeFile(resp *figma.FileResponse, requested []string, depth int) (*cache.NodeStore, error) {
+	store, err := s.File.UpdateNodes(s.versionOf(resp.Version), func(st *cache.NodeStore) error {
+		return st.MergeFile(resp, requested, depth)
+	})
+	if err != nil {
+		return nil, cacheError(err)
+	}
+	s.recordVersion(resp.Version, resp.Name)
+	s.noteStore(store, false, "")
+	return store, nil
+}
+
+// versionOf files content under the version the response reports, so an
+// edit between the freshness check and the fetch cannot mix versions.
+func (s *Session) versionOf(reported string) string {
+	if reported != "" {
+		return reported
+	}
+	if head, ok := s.File.Head(); ok {
+		return head.Version
+	}
+	return "unknown"
+}
+
+func (s *Session) recordVersion(version, name string) {
+	if version == "" {
+		return
+	}
+	_ = s.File.SetHead(cache.Head{Version: version, CheckedAt: s.now(), Name: name})
+}
+
+func (s *Session) noteStore(st *cache.NodeStore, stale bool, latest string) {
+	s.FileInfo.Version = st.Version
+	if st.Name != "" {
+		s.FileInfo.Name = st.Name
+	}
+	s.FileInfo.LastModified = st.LastModified
+	s.FileInfo.EditorType = st.EditorType
+	s.FileInfo.Stale = stale
+	if stale {
+		s.FileInfo.LatestVersion = latest
+	}
+}
+
+func depthParam(depth int) string {
+	if depth == cache.Full {
+		return ""
+	}
+	return strconv.Itoa(max(depth, 1))
+}
+
+func countNew(store *cache.NodeStore, extras []string) int {
+	n := 0
+	for _, id := range extras {
+		if store.Has(id, 0) {
+			n++
+		}
+	}
+	return n
+}
+
+func cacheError(err error) error {
+	return unexpected(err, "cache write")
+}
+
+// Searchable returns the richest cached store for the file's current
+// version, fetching the page/frame outline first if nothing is cached.
+func (s *Session) Searchable(ctx context.Context) (*cache.NodeStore, error) {
+	version, err := s.CurrentVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hasNodes := func(st *cache.NodeStore) bool { return len(st.Nodes) > 0 }
+	store, err := s.answerFromCache(version, hasNodes)
+	if err != nil || store != nil {
+		return store, err
+	}
+	return s.Document(ctx, 2)
+}

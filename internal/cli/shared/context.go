@@ -153,3 +153,19 @@ func warnExpiry(name string, settings config.Profile) {
 	}
 	output.Notice(fmt.Sprintf("The token for profile %q expires in %d day(s), on %s", name, days, settings.Expires), hint)
 }
+
+// Scope names the cache partition the flags select, without needing a token:
+// the env partition for a token from the flag or environment, otherwise the
+// selected profile.
+func Scope(flags *GlobalFlags) string {
+	if flags.Token != "" || os.Getenv("AGENT_FIGMA_TOKEN") != "" {
+		return EnvProfile
+	}
+	cfg := config.Read()
+	if name := SelectedProfile(flags, cfg); name != "" {
+		if _, ok := cfg.Profiles[name]; ok {
+			return name
+		}
+	}
+	return EnvProfile
+}

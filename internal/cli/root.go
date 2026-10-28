@@ -43,8 +43,16 @@ func newRootCmd(version string) *cobra.Command {
 	auth.Register(root, globals)
 	registerResolve(root, globals)
 	registerAPI(root, globals)
+	registerFile(root, globals)
+	registerNodes(root, globals)
+	registerLibrary(root, globals)
+	registerRender(root, globals)
+	registerAssets(root, globals)
+	registerReads(root, globals)
+	registerCache(root, globals)
 
 	installUnknownSubcommandHandlers(root)
+	registerMCP(root)
 	return root
 }
 

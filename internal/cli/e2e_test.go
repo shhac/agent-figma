@@ -466,3 +466,18 @@ func TestMaxNodesContinuationTerminates(t *testing.T) {
 		t.Fatalf("continuation should walk the cached subtree: tier1=%d seen=%v", srv.Stats().Tier1, seen)
 	}
 }
+
+func TestWithRelatedDownloadsCachedSiblings(t *testing.T) {
+	srv := mockEnv(t)
+	mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeButtonSet)
+	mustRun(t, "render", fileKey, "--node", mockfigma.NodeButtonDefault)
+	before := srv.Stats().Tier1
+	r := mustRun(t, "render", fileKey, "--node", mockfigma.NodeButtonDefault, "--with-related")
+	recs := r.records(t)
+	if recs[mockfigma.NodeButtonHover]["downloaded"] != true || recs[mockfigma.NodeButtonDisabled]["downloaded"] != true {
+		t.Fatalf("--with-related should download the cached siblings: %s", r.stdout)
+	}
+	if srv.Stats().Tier1 != before {
+		t.Fatal("sibling URLs were cached; no render call needed")
+	}
+}

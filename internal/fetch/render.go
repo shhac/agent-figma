@@ -101,14 +101,26 @@ func (s *Session) Render(ctx context.Context, req RenderRequest) (*RenderResult,
 	known := s.knownStore(version)
 	view := s.renderView(version, req)
 	need := view.missing(req.IDs)
-	var extras []string
-	if s.prefetching() && len(need) > 0 {
-		extras = s.renderExtras(known, req, need, view)
+	var related []string
+	if s.prefetching() {
+		related = s.renderRelated(known, req)
 	}
-	if err := s.refreshRenders(ctx, version, req, &view, need, extras); err != nil {
+	// Uncached related renders ride along on a call that is happening anyway,
+	// or get a call of their own when --with-related asked for them.
+	extras := view.missing(related)
+	switch {
+	case len(need) > 0:
+		err = s.refreshRenders(ctx, version, req, &view, need, extras)
+		s.Prefetched.Renders += len(extras) - len(view.missing(extras))
+	case req.WithRelated && len(extras) > 0:
+		err = s.refreshRenders(ctx, version, req, &view, extras, nil)
+	default:
+		s.CacheHits++
+	}
+	if err != nil {
 		return nil, err
 	}
-	result := s.assembleRenders(known, version, req, view, extras)
+	result := s.assembleRenders(known, version, req, view, related)
 	if !req.URLOnly {
 		s.downloadRenders(ctx, version, req, &view, result)
 	}
@@ -130,10 +142,6 @@ func (r RenderRequest) validate() error {
 // refreshRenders asks Figma for the URLs the cache lacks and records them,
 // nulls included, so a node that renders nothing is not asked about again.
 func (s *Session) refreshRenders(ctx context.Context, version string, req RenderRequest, view *renderView, need, extras []string) error {
-	if len(need) == 0 {
-		s.CacheHits++
-		return nil
-	}
 	if s.Opts.Offline {
 		return offlineMiss()
 	}
@@ -172,7 +180,6 @@ func (s *Session) assembleRenders(known *cache.NodeStore, version string, req Re
 	}
 	for _, id := range extras {
 		if e, ok := view.usable(id); ok && !e.Null {
-			s.Prefetched.Renders++
 			result.Extras = append(result.Extras, s.describeImage(known, version, id, e.URL, req))
 		}
 	}
@@ -225,10 +232,10 @@ func keepDownloaded(images []Image) ([]Image, []string) {
 	return kept, failed
 }
 
-// renderExtras picks sibling variants (and the variants of a requested
-// component set) at the same format and scale, skipping any whose size would
-// exceed Figma's render cap.
-func (s *Session) renderExtras(known *cache.NodeStore, req RenderRequest, need []string, view renderView) []string {
+// renderRelated picks sibling variants (and the variants of a requested
+// component set) to render at the same format and scale, skipping any whose
+// size would exceed Figma's render cap.
+func (s *Session) renderRelated(known *cache.NodeStore, req RenderRequest) []string {
 	seen := map[string]bool{}
 	for _, id := range req.IDs {
 		seen[id] = true
@@ -239,9 +246,6 @@ func (s *Session) renderExtras(known *cache.NodeStore, req RenderRequest, need [
 			return
 		}
 		seen[id] = true
-		if _, ok := view.usable(id); ok {
-			return
-		}
 		n, ok := known.Node(id)
 		if !ok || !n.IsVisible() {
 			return
@@ -251,7 +255,7 @@ func (s *Session) renderExtras(known *cache.NodeStore, req RenderRequest, need [
 		}
 		out = append(out, id)
 	}
-	for _, id := range need {
+	for _, id := range req.IDs {
 		n, ok := known.Node(id)
 		if !ok {
 			continue

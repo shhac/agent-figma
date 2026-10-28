@@ -9,6 +9,8 @@ type Node struct {
 	Opacity *float64 `json:"opacity,omitempty"`
 
 	AbsoluteBoundingBox *Rect `json:"absoluteBoundingBox,omitempty"`
+	// AbsoluteRenderBounds includes effects such as shadows, which renders do.
+	AbsoluteRenderBounds *Rect `json:"absoluteRenderBounds,omitempty"`
 
 	LayoutMode             string   `json:"layoutMode,omitempty"`
 	LayoutWrap             string   `json:"layoutWrap,omitempty"`

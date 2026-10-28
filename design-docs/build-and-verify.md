@@ -77,7 +77,7 @@ agent-figma compare <ref> --node id --image app.png [--scale auto] [--threshold 
 
 Answers "does this match, and where not" from an implementation screenshot the agent took (for example with Playwright):
 
-- The scale defaults to the screenshot's width over the node's width, so a 2x screenshot is compared with a 2x render. The render is cached like any other.
+- The scale defaults to the screenshot's width over the node's width, so a 2x screenshot is compared with a 2x render. Figma renders include effects such as drop shadows (`absoluteRenderBounds`) while element screenshots usually do not, so both widths are tried and the result snapped to a usual scale (0.5, 1, 1.5, 2, 2.5, 3, 4) within 3%; otherwise the measured ratio is used. Without this, a frame with a drop shadow infers a slightly wrong scale, which misaligns the comparison and spends a Tier 1 call on a render at the wrong scale. When the screenshot is the size of the box, the render is cropped to the box before comparing. The render is cached like any other.
 - Pixels are compared per channel against `--threshold` (0–255) after flattening transparency onto white. A size mismatch is reported and the overlapping area compared.
 - Differing pixels are bucketed into a grid and merged into regions; each region is attributed to the deepest cached node whose box contains it, so the answer reads "the price text (2:33) differs", not "pixels at 410,212".
 - Output: one record `{match_percent, design_size, image_size, scale, diff_image, regions: [{box, pixels, node: {id, type, name, text?}}]}`, where `diff_image` is a PNG highlighting differences over a faded design render.

@@ -263,6 +263,9 @@ func (w *walker) texts(id string, limit int) []string {
 	return out
 }
 
+// Preview is the first line of a text, cut to the outline's preview length.
+func Preview(s string) string { return preview(s, textPreviewRunes) }
+
 // preview is the first line of s, cut to max runes with an ellipsis.
 func preview(s string, max int) string {
 	line, _, cut := strings.Cut(strings.TrimSpace(s), "\n")

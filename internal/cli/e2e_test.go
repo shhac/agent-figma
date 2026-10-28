@@ -626,3 +626,37 @@ func TestDiffWithoutBaselineExplainsWhatToDo(t *testing.T) {
 		t.Fatalf("no baseline: %s", r.stderr)
 	}
 }
+
+func TestCompareMatchesAndLocatesDifferences(t *testing.T) {
+	srv := mockEnv(t)
+	r := mustRun(t, "render", fileKey, "--node", mockfigma.NodeCard, "--scale", "2", "--no-prefetch")
+	screenshot := r.records(t)[mockfigma.NodeCard]["path"].(string)
+
+	r = mustRun(t, "compare", fileKey, "--node", mockfigma.NodeCard, "--image", screenshot)
+	rec := r.records(t)[mockfigma.NodeCard]
+	if rec["match_percent"].(float64) != 100 || rec["scale"].(float64) != 2 {
+		t.Fatalf("the design's own render should match at the inferred scale: %v", rec)
+	}
+
+	// The designer recolours the status dot; the app (the old screenshot) did not follow.
+	if _, err := srv.Edit(fileKey, mockfigma.Edit{Op: mockfigma.EditSet, Node: mockfigma.NodeStatusDot, Field: "fills", Value: []map[string]any{{"type": "SOLID", "color": map[string]any{"r": 1, "g": 0, "b": 0, "a": 1}}}}); err != nil {
+		t.Fatal(err)
+	}
+	before := srv.Stats().Tier1
+	r = mustRun(t, "--refresh", "compare", fileKey, "--node", mockfigma.NodeCard, "--image", screenshot)
+	rec = r.records(t)[mockfigma.NodeCard]
+	regions, _ := rec["regions"].([]any)
+	if rec["match_percent"].(float64) >= 100 || len(regions) == 0 {
+		t.Fatalf("expected a difference: %v", rec)
+	}
+	hit, _ := regions[0].(map[string]any)["node"].(map[string]any)
+	if hit["id"] != mockfigma.NodeStatusDot {
+		t.Fatalf("difference should be attributed to the status dot: %v", regions[0])
+	}
+	if diffImg, _ := rec["diff_image"].(map[string]any); diffImg["path"] == nil {
+		t.Fatalf("expected a diff image: %v", rec)
+	}
+	if spent := srv.Stats().Tier1 - before; spent > 2 {
+		t.Fatalf("compare spent %d Tier 1 calls", spent)
+	}
+}

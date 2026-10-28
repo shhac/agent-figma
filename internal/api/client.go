@@ -56,11 +56,14 @@ type Client struct {
 	calls map[ratelimit.Tier]int
 }
 
-func New(baseURL, token string) *Client {
+// New builds a client. Every request goes through limiter, which paces
+// requests, records 429s, and sits out short cooldowns.
+func New(baseURL, token string, limiter *ratelimit.Limiter) *Client {
 	return &Client{
 		BaseURL:    strings.TrimRight(baseURL, "/"),
 		Token:      token,
 		HTTPClient: &http.Client{},
+		Limiter:    limiter,
 		MaxRetries: 2,
 		MaxWait:    60 * time.Second,
 	}
@@ -106,16 +109,14 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, retry5x
 	failures, waits := 0, 0
 	var waited time.Duration
 	for {
-		if c.Limiter != nil {
-			started := time.Now()
-			grant, err := c.Limiter.Acquire(ctx, tier, fileKey)
-			waited += time.Since(started)
-			if err != nil {
-				return nil, c.limitError(err, fileKey)
-			}
-			if c.OnGrant != nil {
-				c.OnGrant(grant)
-			}
+		started := time.Now()
+		grant, err := c.Limiter.Acquire(ctx, tier, fileKey)
+		waited += time.Since(started)
+		if err != nil {
+			return nil, c.limitError(err, fileKey)
+		}
+		if c.OnGrant != nil {
+			c.OnGrant(grant)
 		}
 		req, err := c.newRequest(ctx, path, query)
 		if err != nil {
@@ -123,52 +124,32 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, retry5x
 		}
 		c.count(tier)
 		status, header, raw, err := c.send(req)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, timedOut(ctx.Err())
-			}
-			if failures >= c.MaxRetries {
-				return nil, agenterrors.Wrap(err, agenterrors.FixableByRetry).WithHint("Network request to Figma failed after retries")
-			}
-			failures++
-			if err := c.wait(ctx, backoff(failures)); err != nil {
-				return nil, timedOut(err)
-			}
-			continue
-		}
-		if status == http.StatusTooManyRequests {
+		switch {
+		case err != nil && ctx.Err() != nil:
+			return nil, timedOut(ctx.Err())
+		case err != nil && failures >= c.MaxRetries:
+			return nil, agenterrors.Wrap(err, agenterrors.FixableByRetry).WithHint("Network request to Figma failed after retries")
+		case err != nil:
+		case status == http.StatusTooManyRequests:
+			// The cooldown Observe429 records makes the next Acquire wait, so
+			// a short Retry-After is sat out without spending a retry.
 			after := retryAfter(header.Get("Retry-After"))
-			var rle *ratelimit.RateLimitedError
-			if c.Limiter != nil {
-				rle = c.Limiter.Observe429(tier, fileKey, header, after)
-			} else {
-				rle = &ratelimit.RateLimitedError{Tier: tier, RetryAfter: after, PlanTier: header.Get("X-Figma-Plan-Tier"), RateLimitType: header.Get("X-Figma-Rate-Limit-Type"), UpgradeLink: header.Get("X-Figma-Upgrade-Link")}
-			}
-			if after > c.MaxWait || waited+after > c.MaxWait || waits >= max429Waits {
+			rle := c.Limiter.Observe429(tier, fileKey, header, after)
+			if waited+after > c.MaxWait || waits >= max429Waits {
 				return nil, c.limitError(rle, fileKey)
 			}
 			waits++
-			// With a limiter the cooldown it just recorded makes the next
-			// Acquire wait; without one, wait here.
-			if c.Limiter == nil {
-				if err := c.wait(ctx, after); err != nil {
-					return nil, timedOut(err)
-				}
-				waited += after
-			}
 			continue
-		}
-		if retryableStatus(status, retry5xx) && failures < c.MaxRetries {
-			failures++
-			if err := c.wait(ctx, backoff(failures)); err != nil {
-				return nil, timedOut(err)
-			}
-			continue
-		}
-		if status < 200 || status >= 300 {
+		case retryableStatus(status, retry5xx) && failures < c.MaxRetries:
+		case status < 200 || status >= 300:
 			return nil, mapError(status, raw, path)
+		default:
+			return json.RawMessage(raw), nil
 		}
-		return json.RawMessage(raw), nil
+		failures++
+		if err := c.wait(ctx, backoff(failures)); err != nil {
+			return nil, timedOut(err)
+		}
 	}
 }
 

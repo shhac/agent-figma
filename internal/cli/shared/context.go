@@ -89,18 +89,18 @@ func Resolve(flags *GlobalFlags) (*Resolved, error) {
 	}
 
 	maxWait := time.Duration(flags.MaxWaitS) * time.Second
-	client := api.New(creds.FirstNonEmpty(flags.BaseURL, os.Getenv("AGENT_FIGMA_BASE_URL"), api.DefaultBaseURL), token)
-	client.MaxRetries = flags.MaxRetries
-	client.MaxWait = maxWait
-	client.Debug = flags.Debug
-	client.DebugOut = output.Stderr()
-	client.Limiter = &ratelimit.Limiter{
+	limiter := &ratelimit.Limiter{
 		Store:        creds.Store{Path: ratelimit.StatePath(config.AppName)},
 		Profile:      scope,
 		DeclaredSeat: settings.Seat,
 		DeclaredPlan: settings.Plan,
 		MaxWait:      maxWait,
 	}
+	client := api.New(creds.FirstNonEmpty(flags.BaseURL, os.Getenv("AGENT_FIGMA_BASE_URL"), api.DefaultBaseURL), token, limiter)
+	client.MaxRetries = flags.MaxRetries
+	client.MaxWait = maxWait
+	client.Debug = flags.Debug
+	client.DebugOut = output.Stderr()
 	client.OnGrant = func(g ratelimit.Grant) {
 		if g.LowSeatTier1() {
 			output.Notice(fmt.Sprintf("Spent a Tier 1 call on a monthly-limited budget (%d this month for this profile)", g.MonthCount),

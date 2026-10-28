@@ -81,7 +81,7 @@ func (s *Session) prefetching() bool {
 }
 
 func (s *Session) lowSeat() bool {
-	return s.Client.Limiter != nil && s.Client.Limiter.Observe().SeatClass == ratelimit.SeatLow
+	return s.Client.Limiter.Observe().SeatClass == ratelimit.SeatLow
 }
 
 func (s *Session) servesStale() bool {

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,10 +24,8 @@ func newTestClient(t *testing.T, h http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	c := New(srv.URL, "fake-token")
-	c.Sleep = noSleep
 	now := time.Now()
-	c.Limiter = &ratelimit.Limiter{
+	c := New(srv.URL, "fake-token", &ratelimit.Limiter{
 		Store:   creds.Store{Path: filepath.Join(t.TempDir(), "rl.json")},
 		Profile: "test",
 		MaxWait: time.Minute,
@@ -34,7 +34,8 @@ func newTestClient(t *testing.T, h http.HandlerFunc) *Client {
 			now = now.Add(d)
 			return nil
 		},
-	}
+	})
+	c.Sleep = noSleep
 	return c
 }
 
@@ -137,5 +138,83 @@ func TestErrorShapes(t *testing.T) {
 func TestFileKeyFromPath(t *testing.T) {
 	if FileKeyFromPath("/v1/images/ABC") != "ABC" || FileKeyFromPath("/v1/files/ABC/nodes") != "ABC" || FileKeyFromPath("/v1/me") != "" {
 		t.Fatal("file key extraction")
+	}
+}
+
+func statusSequence(t *testing.T, statuses ...int) (*Client, *atomic.Int32) {
+	t.Helper()
+	var n atomic.Int32
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		i := int(n.Add(1)) - 1
+		status := statuses[min(i, len(statuses)-1)]
+		if status == http.StatusTooManyRequests {
+			w.Header().Set("Retry-After", "0")
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"status":` + strconv.Itoa(status) + `,"err":"x"}`))
+	})
+	return c, &n
+}
+
+func TestServerErrorsRetryThenSucceedOrGiveUp(t *testing.T) {
+	c, n := statusSequence(t, 503, 503, 200)
+	if _, err := c.Get(context.Background(), "/v1/me", nil); err != nil || n.Load() != 3 {
+		t.Fatalf("503,503,200: err=%v calls=%d", err, n.Load())
+	}
+	c, n = statusSequence(t, 503)
+	_, err := c.Get(context.Background(), "/v1/me", nil)
+	var ae *agenterrors.Error
+	if !errors.As(err, &ae) || ae.FixableBy != agenterrors.FixableByRetry || n.Load() != 3 {
+		t.Fatalf("503 forever: err=%v calls=%d", err, n.Load())
+	}
+}
+
+func TestRendersRetryGatewayErrorsButNot500(t *testing.T) {
+	c, n := statusSequence(t, 502, 200)
+	if _, err := c.GetNoServerRetry(context.Background(), "/v1/images/KEY", nil); err != nil || n.Load() != 2 {
+		t.Fatalf("502 then 200: err=%v calls=%d", err, n.Load())
+	}
+}
+
+func TestRepeated429sStopAfterCap(t *testing.T) {
+	c, n := statusSequence(t, 429)
+	if _, err := c.Get(context.Background(), "/v1/me", nil); err == nil || n.Load() != max429Waits+1 {
+		t.Fatalf("endless 429s: err=%v calls=%d", err, n.Load())
+	}
+}
+
+func TestNetworkFailureAndCancellation(t *testing.T) {
+	c := newTestClient(t, func(http.ResponseWriter, *http.Request) {})
+	c.BaseURL = "http://127.0.0.1:1"
+	var ae *agenterrors.Error
+	if _, err := c.Get(context.Background(), "/v1/me", nil); !errors.As(err, &ae) || ae.FixableBy != agenterrors.FixableByRetry {
+		t.Fatalf("unreachable host: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.Get(ctx, "/v1/me", nil); !errors.As(err, &ae) || !strings.Contains(ae.Hint, "--timeout") {
+		t.Fatalf("cancelled context: %v", err)
+	}
+}
+
+func TestRetryAfterParsing(t *testing.T) {
+	if retryAfter("7") != 7*time.Second || retryAfter("") != time.Minute || retryAfter("abc") != time.Minute {
+		t.Fatal("seconds, missing, garbage")
+	}
+	when := time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)
+	if d := retryAfter(when); d < 80*time.Second || d > 91*time.Second {
+		t.Fatalf("http date: %s", d)
+	}
+}
+
+func TestTokenNeverReachesDebugOutput(t *testing.T) {
+	var buf strings.Builder
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{}`)) })
+	c.Debug, c.DebugOut = true, &buf
+	if _, err := c.Get(context.Background(), "/v1/me", nil); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() == 0 || strings.Contains(buf.String(), "fake-token") {
+		t.Fatalf("debug output: %q", buf.String())
 	}
 }

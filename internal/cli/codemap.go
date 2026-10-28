@@ -40,8 +40,14 @@ func (m mapping) annotate(result *simplify.Result, store *cache.NodeStore) {
 	if !m.exists {
 		return
 	}
-	for i := range result.Components {
-		u := &result.Components[i]
+	m.annotateUses(result.Components)
+	m.annotateRecords(result.Records, store)
+}
+
+// annotateUses marks each component use mapped or not, with its code.
+func (m mapping) annotateUses(uses []simplify.ComponentUse) {
+	for i := range uses {
+		u := &uses[i]
 		entry := m.file.Lookup(u.SetKey, u.Key, cmpOr(u.Set, u.Component))
 		mapped := entry != nil
 		u.Mapped = &mapped
@@ -53,8 +59,12 @@ func (m mapping) annotate(result *simplify.Result, store *cache.NodeStore) {
 			u.Variants[j].CodeProps = entry.CodeProps(u.Variants[j].Props)
 		}
 	}
-	for i := range result.Records {
-		rec := &result.Records[i]
+}
+
+// annotateRecords adds the mapped code component to instance records.
+func (m mapping) annotateRecords(records []simplify.Record, store *cache.NodeStore) {
+	for i := range records {
+		rec := &records[i]
 		if rec.Component == nil {
 			continue
 		}
@@ -101,15 +111,13 @@ exists, @components and instance records carry the mapped code component and pro
 				if err != nil {
 					return err
 				}
-				m.exists = true
-				result := simplify.Result{Components: uses}
-				m.annotate(&result, cache.NewNodeStore(""))
+				m.annotateUses(uses)
 				stream, err := shared.FileStream(globals, session)
 				if err != nil {
 					return err
 				}
-				stream.Meta("@components_file", map[string]any{"path": m.path, "exists": fileExists(m.path), "entries": len(m.file.Components)})
-				for _, u := range result.Components {
+				stream.Meta("@components_file", map[string]any{"path": m.path, "exists": m.exists, "entries": len(m.file.Components)})
+				for _, u := range uses {
 					stream.Item(u)
 				}
 				return shared.Finish(stream, session)
@@ -282,9 +290,4 @@ func componentUses(ctx context.Context, session *fetch.Session, ids []string) ([
 		return nil, nil
 	}
 	return simplify.Simplify(store, root.Children, simplify.Options{View: simplify.ViewStructure, MaxDepth: cache.Full}).Components, nil
-}
-
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }

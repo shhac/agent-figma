@@ -5,6 +5,7 @@
 package simplify
 
 import (
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -108,12 +109,7 @@ func Simplify(store *cache.NodeStore, roots []string, opts Options) Result {
 	}
 	included := w.plan(roots)
 	w.labels = NewLabeler(store)
-	w.nameCounts = map[string]int{}
-	for id := range included {
-		if n, ok := w.node(id); ok && slices.Contains(labelledTypes, n.Type) && n.Name != "" {
-			w.nameCounts[n.Name]++
-		}
-	}
+	w.labels.CountNames(slices.Collect(maps.Keys(included)))
 	for _, root := range roots {
 		if _, known := w.node(root); known && !included[root] {
 			w.next = append(w.next, root)
@@ -134,19 +130,6 @@ type walker struct {
 	roots   map[string]bool
 	uses    *componentUses
 	labels  *Labeler
-	// nameCounts counts container names in the output; a name used by three
-	// or more is not telling them apart, so they get labels.
-	nameCounts map[string]int
-}
-
-func (w *walker) label(id string, n figma.Node) string {
-	if l := w.labels.For(id); l != "" {
-		return l
-	}
-	if slices.Contains(labelledTypes, n.Type) && w.nameCounts[n.Name] >= 3 {
-		return w.labels.Heading(id)
-	}
-	return ""
 }
 
 // folds reports an instance shown as a leaf: any instance, unless asked to
@@ -372,7 +355,7 @@ func displayName(n figma.Node) string {
 }
 
 func (w *walker) record(n figma.Node, stored *cache.StoredNode, depth int, svg bool) Record {
-	rec := Record{ID: n.ID, Parent: stored.Parent, Depth: depth, Type: n.Type, Name: displayName(n), Label: w.label(n.ID, n)}
+	rec := Record{ID: n.ID, Parent: stored.Parent, Depth: depth, Type: n.Type, Name: displayName(n), Label: w.labels.For(n.ID)}
 	rec.SVG = svg || n.Type == "VECTOR"
 	if box := n.AbsoluteBoundingBox; box != nil {
 		rec.Size = []float64{round(box.Width), round(box.Height)}

@@ -33,6 +33,9 @@ func IsGenericName(name string) bool {
 type Labeler struct {
 	store *cache.NodeStore
 	memo  map[string]heading
+	// names counts container names in some output: a name three or more of
+	// them share does not tell them apart, so they get labels too.
+	names map[string]int
 }
 
 type heading struct {
@@ -45,11 +48,28 @@ func NewLabeler(store *cache.NodeStore) *Labeler {
 	return &Labeler{store: store, memo: map[string]heading{}}
 }
 
-// For returns the label for a container whose name is generic, or "" when
-// the node keeps its own name or has no text under it.
+// CountNames records the container names among ids, so names they share
+// count as generic.
+func (l *Labeler) CountNames(ids []string) {
+	if l.names == nil {
+		l.names = map[string]int{}
+	}
+	for _, id := range ids {
+		if n, ok := l.store.Node(id); ok && slices.Contains(labelledTypes, n.Type) && n.Name != "" {
+			l.names[n.Name]++
+		}
+	}
+}
+
+// For returns the label for a container whose name is generic (or shared
+// by three or more counted nodes), or "" when the node keeps its own name or
+// has no text under it.
 func (l *Labeler) For(id string) string {
 	n, ok := l.store.Node(id)
-	if !ok || !slices.Contains(labelledTypes, n.Type) || !IsGenericName(displayName(n)) {
+	if !ok || !slices.Contains(labelledTypes, n.Type) {
+		return ""
+	}
+	if !IsGenericName(displayName(n)) && l.names[n.Name] < 3 {
 		return ""
 	}
 	return l.Heading(id)

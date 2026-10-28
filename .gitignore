@@ -6,3 +6,4 @@
 /.ai-cache/
 coverage.out
 .env*
+/.claude/worktrees/

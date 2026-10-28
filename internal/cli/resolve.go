@@ -22,14 +22,14 @@ func registerResolve(root *cobra.Command, globals *shared.GlobalFlags) {
 					return agenterrors.Wrap(err, agenterrors.FixableByAgent).
 						WithHint("Pass a figma.com link (design, file, proto, board, ...) or a bare file key.")
 				}
-				rows = append(rows, map[string]any{
+				rows = append(rows, pruned(map[string]any{
 					"input":       arg,
 					"file_key":    ref.FileKey,
 					"branch_key":  ref.BranchKey,
 					"api_key":     ref.Key(),
 					"editor_path": ref.EditorPath,
 					"node_ids":    ref.NodeIDs,
-				})
+				}))
 			}
 			return output.WriteList(rows, nil, globals.Format)
 		},

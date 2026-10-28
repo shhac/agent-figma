@@ -127,7 +127,7 @@ func trimFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 // writeImages prints manifest lines, copying into out when given.
 func writeImages(stream *output.Stream, images []fetch.Image, out string, urlOnly bool) error {
 	for _, img := range images {
-		rec := map[string]any{"id": img.ID, "name": img.Name, "page": img.Page, "format": img.Format, "scale": img.Scale, "source": img.Source}
+		rec := pruned(map[string]any{"id": img.ID, "name": img.Name, "page": img.Page, "format": img.Format, "scale": img.Scale, "source": img.Source})
 		if urlOnly {
 			rec["url"] = img.URL
 			stream.Item(rec)
@@ -136,14 +136,22 @@ func writeImages(stream *output.Stream, images []fetch.Image, out string, urlOnl
 		rec["bytes"], rec["downloaded"] = img.Bytes, img.Downloaded
 		fileFields(rec, img.Path)
 		if out != "" {
-			dest := filepath.Join(out, strings.TrimPrefix(img.RelPath(), "renders"+string(filepath.Separator)))
-			if err := copyFile(img.Path, dest); err != nil {
-				return agenterrors.Wrap(err, agenterrors.FixableByHuman).WithHint("Check that --out is writable")
+			if err := copyOut(rec, img.Path, filepath.Join(out, strings.TrimPrefix(img.RelPath(), "renders"+string(filepath.Separator)))); err != nil {
+				return err
 			}
-			rec["cache_path"], rec["path"] = img.Path, absPath(dest)
 		}
 		stream.Item(rec)
 	}
+	return nil
+}
+
+// copyOut copies a cached file to dest and points the record's path there,
+// keeping the cache location as cache_path.
+func copyOut(rec map[string]any, src, dest string) error {
+	if err := copyFile(src, dest); err != nil {
+		return agenterrors.Wrap(err, agenterrors.FixableByHuman).WithHint("Check that --out is writable")
+	}
+	rec["cache_path"], rec["path"] = src, absPath(dest)
 	return nil
 }
 
@@ -218,14 +226,16 @@ func registerAssets(root *cobra.Command, globals *shared.GlobalFlags) {
 				}
 				stream.Meta(output.MetaFile, session.FileInfo)
 				for _, f := range downloaded {
-					rec := map[string]any{"image_ref": f.ImageRef, "nodes": f.Nodes, "scale_mode": f.ScaleMode, "bytes": f.Bytes, "mime": f.MIME, "source": f.Source, "downloaded": f.Downloaded}
+					rec := pruned(map[string]any{
+						"image_ref": f.ImageRef, "nodes": f.Nodes, "scale_mode": f.ScaleMode, "format": strings.TrimPrefix(filepath.Ext(f.Path), "."),
+						"mime": f.MIME, "source": f.Source,
+					})
+					rec["bytes"], rec["downloaded"] = f.Bytes, f.Downloaded
 					fileFields(rec, f.Path)
 					if fillOut != "" {
-						dest := filepath.Join(fillOut, "fills", filepath.Base(f.Path))
-						if err := copyFile(f.Path, dest); err != nil {
-							return agenterrors.Wrap(err, agenterrors.FixableByHuman)
+						if err := copyOut(rec, f.Path, filepath.Join(fillOut, "fills", filepath.Base(f.Path))); err != nil {
+							return err
 						}
-						rec["cache_path"], rec["path"] = f.Path, absPath(dest)
 					}
 					stream.Item(rec)
 				}

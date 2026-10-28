@@ -94,7 +94,7 @@ func writeNodes(globals *shared.GlobalFlags, session *fetch.Session, result simp
 		stream.MetaEach(output.MetaRelated, rel)
 	}
 	if len(result.Next) > 0 {
-		stream.Meta(output.MetaPagination, map[string]any{"has_more": true, "next_cursor": strings.Join(result.Next, ",")})
+		stream.Meta(output.MetaPagination, output.Pagination{HasMore: true, NextCursor: strings.Join(result.Next, ",")})
 	}
 	return shared.Finish(stream, session)
 }
@@ -109,12 +109,12 @@ func noteCut(cut []string) {
 		"Records marked truncated have more children; request them with 'nodes get --node <id>'.")
 }
 
-func unresolvedNode(id string) map[string]any {
-	return map[string]any{
-		"id":         id,
-		"reason":     "Figma has no node " + id + " in this file",
-		"fixable_by": string(agenterrors.FixableByAgent),
-		"hint":       "Check the id with 'agent-figma file outline <ref>'. Branch links need the branch key, and prototype or FigJam links may use different ids.",
+func unresolvedNode(id string) fetch.Unresolved {
+	return fetch.Unresolved{
+		ID:        id,
+		Reason:    "Figma has no node " + id + " in this file",
+		FixableBy: string(agenterrors.FixableByAgent),
+		Hint:      "Check the id with 'agent-figma file outline <ref>'; prototype and FigJam links can use different ids than the design file.",
 	}
 }
 
@@ -227,9 +227,12 @@ func registerNodesFind(parent *cobra.Command, globals *shared.GlobalFlags) {
 					}
 					stream.Item(rec)
 				}
+				if incomplete == nil {
+					incomplete = []string{}
+				}
 				stream.Meta("@coverage", map[string]any{"searched": len(store.Nodes), "matches": matches, "incomplete": firstN(incomplete, 50)})
 				if matches > limit {
-					stream.Meta(output.MetaPagination, map[string]any{"has_more": true})
+					stream.Meta(output.MetaPagination, output.Pagination{HasMore: true})
 				}
 				return shared.Finish(stream, session)
 			})

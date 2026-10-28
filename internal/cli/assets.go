@@ -110,10 +110,9 @@ func registerAssets(root *cobra.Command, globals *shared.GlobalFlags) {
 					return err
 				}
 				for _, group := range fetch.ExportGroups(res.Store, ref.NodeIDs) {
-					rendered, err := session.Render(ctx, fetch.RenderRequest{
-						IDs: group.IDs, Format: group.Format, Scale: group.Scale, Suffixes: group.Suffixes,
-						SVGOutlineText: true, SVGSimplifyStroke: true, ContentsOnly: true, Source: "export",
-					})
+					req := fetch.DefaultRender(group.IDs, group.Format, group.Scale)
+					req.Suffixes, req.Source = group.Suffixes, "export"
+					rendered, err := session.Render(ctx, req)
 					if err != nil {
 						return err
 					}

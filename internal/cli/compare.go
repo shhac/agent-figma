@@ -42,8 +42,12 @@ locator.screenshot().`,
 			if err != nil {
 				return err
 			}
-			if len(ref.NodeIDs) != 1 || imagePath == "" {
-				return agenterrors.New("compare takes one node and --image <screenshot>", agenterrors.FixableByAgent)
+			if err := shared.RequireOneNode(ref, "compare"); err != nil {
+				return err
+			}
+			if imagePath == "" {
+				return agenterrors.New("compare needs --image <screenshot>", agenterrors.FixableByAgent).
+					WithHint("Screenshot just the component, e.g. Playwright's locator.screenshot({ path }).")
 			}
 			if err := checkOut(out); err != nil {
 				return err
@@ -88,11 +92,11 @@ func loadImage(path string) (image.Image, error) {
 }
 
 func runCompare(ctx context.Context, session *fetch.Session, id string, actual image.Image, scale float64, threshold uint8, out string) (map[string]any, error) {
-	res, err := session.Nodes(ctx, []string{id}, cache.Full)
+	store, err := requireNode(ctx, session, id)
 	if err != nil {
 		return nil, err
 	}
-	node, ok := res.Store.Node(id)
+	node, ok := store.Node(id)
 	if !ok || node.AbsoluteBoundingBox == nil || node.AbsoluteBoundingBox.Width == 0 {
 		return nil, agenterrors.New("node "+id+" has no size to compare against", agenterrors.FixableByAgent).
 			WithHint("Compare a frame, component, or instance rather than a page or an empty node.")
@@ -101,7 +105,7 @@ func runCompare(ctx context.Context, session *fetch.Session, id string, actual i
 		scale = inferScale(actual.Bounds().Dx(), node)
 	}
 	scale = min(max(scale, 0.01), 4)
-	render, err := session.Render(ctx, fetch.RenderRequest{IDs: []string{id}, Format: "png", Scale: scale, ContentsOnly: true, SVGOutlineText: true, SVGSimplifyStroke: true})
+	render, err := session.Render(ctx, fetch.DefaultRender([]string{id}, "png", scale))
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +120,7 @@ func runCompare(ctx context.Context, session *fetch.Session, id string, actual i
 	result := imagediff.Compare(design, actual, threshold)
 	diffPath := out
 	if diffPath == "" {
-		diffPath = filepath.Join(session.File.VersionDir(res.Store.Version), "compare", cache.NodeIDSegment(id)+"@"+strconv.FormatFloat(scale, 'f', -1, 64)+"x-diff.png")
+		diffPath = filepath.Join(session.File.VersionDir(store.Version), "compare", cache.NodeIDSegment(id)+"@"+strconv.FormatFloat(scale, 'f', -1, 64)+"x-diff.png")
 	}
 	if err := writePNG(diffPath, result.Diff); err != nil {
 		return nil, agenterrors.Wrap(err, agenterrors.FixableByHuman).WithHint("Check that the diff image path is writable")
@@ -124,7 +128,7 @@ func runCompare(ctx context.Context, session *fetch.Session, id string, actual i
 	regions := make([]map[string]any, 0, len(result.Regions))
 	for _, r := range result.Regions {
 		entry := map[string]any{"box": r.Box, "pixels": r.Pixels}
-		if hit := nodeAt(res.Store, id, origin, r.Box, scale); hit != nil {
+		if hit := nodeAt(store, id, origin, r.Box, scale); hit != nil {
 			entry["node"] = hit
 		}
 		regions = append(regions, entry)

@@ -42,6 +42,16 @@ func RequireNodes(ref figmaurl.Ref, command string) error {
 		WithHint("Pass --node <id> or a link with ?node-id=; 'agent-figma file outline <ref>' lists node ids.")
 }
 
+// RequireOneNode fails when a command that works on one node got none or
+// several.
+func RequireOneNode(ref figmaurl.Ref, command string) error {
+	if len(ref.NodeIDs) == 1 {
+		return nil
+	}
+	return agenterrors.New(command+" takes exactly one node", agenterrors.FixableByAgent).
+		WithHint("Pass --node <id>, or a link with one node-id; run it once per node.")
+}
+
 // NewSession opens the cache-first view of the file a ref names.
 func NewSession(r *Resolved, flags *GlobalFlags, ref figmaurl.Ref) *fetch.Session {
 	return fetch.NewSession(r.Client, r.Scope, ref, fetch.Options{

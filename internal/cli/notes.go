@@ -31,11 +31,15 @@ siblings cached; @notes_coverage says when they are not.`,
 			if err != nil {
 				return err
 			}
-			if len(ref.NodeIDs) != 1 {
-				return agenterrors.New("nodes notes takes exactly one node", agenterrors.FixableByAgent)
+			if err := shared.RequireOneNode(ref, "nodes notes"); err != nil {
+				return err
 			}
 			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
-				found, cov, err := collectNotes(ctx, session, ref.NodeIDs[0], radius, !noComments)
+				store, err := requireNode(ctx, session, ref.NodeIDs[0])
+				if err != nil {
+					return err
+				}
+				found, cov, err := collectNotes(ctx, session, store, ref.NodeIDs[0], radius, !noComments)
 				if err != nil {
 					return err
 				}
@@ -62,15 +66,9 @@ siblings cached; @notes_coverage says when they are not.`,
 	parent.AddCommand(cmd)
 }
 
-func collectNotes(ctx context.Context, session *fetch.Session, id string, radius float64, withComments bool) ([]notes.Note, notes.Coverage, error) {
-	res, err := session.Nodes(ctx, []string{id}, cache.Full)
-	if err != nil {
-		return nil, notes.Coverage{}, err
-	}
-	if len(res.Missing) > 0 {
-		return nil, notes.Coverage{}, agenterrors.New("Figma has no node "+id+" in this file", agenterrors.FixableByAgent)
-	}
-	store := res.Store
+// collectNotes gathers notes for id from an already loaded store, plus
+// comments (one Tier 2 call, cached) when asked.
+func collectNotes(ctx context.Context, session *fetch.Session, store *cache.NodeStore, id string, radius float64, withComments bool) ([]notes.Note, notes.Coverage, error) {
 	found, cov := notes.Canvas(store, id, radius)
 	found = append(found, notes.Annotations(store, id)...)
 	found = append(found, notes.Descriptions(store, id)...)
@@ -82,4 +80,17 @@ func collectNotes(ctx context.Context, session *fetch.Session, id string, radius
 		found = append(found, notes.Comments(store, id, comments)...)
 	}
 	return found, cov, nil
+}
+
+// requireNode makes sure id's whole subtree is cached and that Figma has it.
+func requireNode(ctx context.Context, session *fetch.Session, id string) (*cache.NodeStore, error) {
+	res, err := session.Nodes(ctx, []string{id}, cache.Full)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Missing) > 0 {
+		return nil, agenterrors.New("Figma has no node "+id+" in this file", agenterrors.FixableByAgent).
+			WithHint("Check the id with 'agent-figma file outline <ref>'.")
+	}
+	return res.Store, nil
 }

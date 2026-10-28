@@ -173,7 +173,7 @@ func renderPairs(ctx context.Context, session *fetch.Session, sum diff.Summary, 
 	ids := sum.FrameIDs(maxDiffRenders)
 	paths := map[string]map[string]any{}
 	for _, side := range []struct{ key, version string }{{"before", from}, {"after", to}} {
-		res, err := session.Render(ctx, fetch.RenderRequest{IDs: ids, Format: "png", Scale: 1, Version: side.version, ContentsOnly: true, SVGOutlineText: true, SVGSimplifyStroke: true})
+		res, err := session.Render(ctx, withVersion(fetch.DefaultRender(ids, "png", 1), side.version))
 		if err != nil {
 			return nil, err
 		}
@@ -193,4 +193,9 @@ func renderPairs(ctx context.Context, session *fetch.Session, sum diff.Summary, 
 		}
 	}
 	return out, nil
+}
+
+func withVersion(req fetch.RenderRequest, version string) fetch.RenderRequest {
+	req.Version = version
+	return req
 }

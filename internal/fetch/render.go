@@ -48,6 +48,13 @@ type RenderRequest struct {
 	Version string
 }
 
+// DefaultRender is a render with the same options as the render command's
+// defaults. The options are part of the render cache key, so every caller
+// that does not need different ones should start here to share the cache.
+func DefaultRender(ids []string, format string, scale float64) RenderRequest {
+	return RenderRequest{IDs: ids, Format: format, Scale: scale, ContentsOnly: true, SVGOutlineText: true, SVGSimplifyStroke: true}
+}
+
 func (r RenderRequest) scale() float64 {
 	if r.Format == "svg" || r.Format == "pdf" || r.Scale <= 0 {
 		return 1

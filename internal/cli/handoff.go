@@ -39,9 +39,8 @@ elsewhere.`,
 			if err != nil {
 				return err
 			}
-			if len(ref.NodeIDs) != 1 {
-				return agenterrors.New("handoff takes exactly one node", agenterrors.FixableByAgent).
-					WithHint("Pass --node <id>, or a link with one node-id; run it once per screen.")
+			if err := shared.RequireOneNode(ref, "handoff"); err != nil {
+				return err
 			}
 			if err := checkOut(out); err != nil {
 				return err
@@ -77,35 +76,27 @@ type handoffFile struct {
 }
 
 func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, scale float64, m mapping) ([]map[string]any, error) {
-	res, err := session.Nodes(ctx, []string{id}, cache.Full)
+	store, err := requireNode(ctx, session, id)
 	if err != nil {
 		return nil, err
 	}
-	if len(res.Missing) > 0 {
-		return nil, agenterrors.New("Figma has no node "+id+" in this file", agenterrors.FixableByAgent).
-			WithHint("Check the id with 'agent-figma file outline <ref>'.")
-	}
-	store := res.Store
 	tree := simplify.Simplify(store, []string{id}, simplify.Options{View: simplify.ViewAll, MaxDepth: cache.Full})
 	m.annotate(&tree, store)
 	node, _ := store.Node(id)
-	dir := out
-	if dir == "" {
-		dir = filepath.Join(session.File.VersionDir(store.Version), "handoff", cache.Slug(cmp.Or(simplify.NewLabeler(store).For(id), node.Name))+"--"+cache.NodeIDSegment(id))
-	}
+	dir := cmp.Or(out, handoffDir(session, store, id, node.Name))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, agenterrors.Wrap(err, agenterrors.FixableByHuman).WithHint("Check that the handoff folder is writable")
 	}
 
 	var files []handoffFile
-	shot, err := session.Render(ctx, fetch.RenderRequest{IDs: []string{id}, Format: "png", Scale: scale, ContentsOnly: true, SVGOutlineText: true, SVGSimplifyStroke: true})
+	shot, err := session.Render(ctx, fetch.DefaultRender([]string{id}, "png", scale))
 	if err != nil {
 		return nil, err
 	}
 	for _, img := range shot.Images {
 		files = append(files, handoffFile{kind: "screenshot", name: node.Name, src: img.Path, rel: "screenshot.png"})
 	}
-	found, cov, err := collectNotes(ctx, session, id, notes.DefaultRadius, true)
+	found, cov, err := collectNotes(ctx, session, store, id, notes.DefaultRadius, true)
 	if err != nil {
 		return nil, err
 	}
@@ -158,11 +149,37 @@ func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, s
 // handoffIcons renders every svg:true node as SVG in one call, one file per
 // main component, so an icon used 300 times is exported once.
 func handoffIcons(ctx context.Context, session *fetch.Session, records []simplify.Record) ([]handoffFile, error) {
+	ids, names := iconTargets(records)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	req := fetch.DefaultRender(ids, "svg", 1)
+	req.Source = "icon"
+	res, err := session.Render(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return iconFiles(res.Images, names), nil
+}
+
+// handoffDir is the default handoff folder: in the version's cache, named
+// for the node (by its label when its name is generic).
+func handoffDir(session *fetch.Session, store *cache.NodeStore, id, name string) string {
+	slug := cache.Slug(cmp.Or(simplify.NewLabeler(store).For(id), name))
+	return filepath.Join(session.File.VersionDir(store.Version), "handoff", slug+"--"+cache.NodeIDSegment(id))
+}
+
+// iconTargets picks the svg records to export, one per main component (an
+// icon used 300 times is exported once), up to maxHandoffIcons.
+func iconTargets(records []simplify.Record) ([]string, map[string]string) {
 	var ids []string
 	names := map[string]string{}
 	seen := map[string]bool{}
 	for _, rec := range records {
-		if !rec.SVG || len(ids) == maxHandoffIcons {
+		if len(ids) == maxHandoffIcons {
+			break
+		}
+		if !rec.SVG {
 			continue
 		}
 		key, name := rec.ID, rec.Name
@@ -176,16 +193,14 @@ func handoffIcons(ctx context.Context, session *fetch.Session, records []simplif
 		ids = append(ids, rec.ID)
 		names[rec.ID] = cmp.Or(name, "icon")
 	}
-	if len(ids) == 0 {
-		return nil, nil
-	}
-	res, err := session.Render(ctx, fetch.RenderRequest{IDs: ids, Format: "svg", Scale: 1, ContentsOnly: true, SVGOutlineText: true, SVGSimplifyStroke: true, Source: "icon"})
-	if err != nil {
-		return nil, err
-	}
+	return ids, names
+}
+
+// iconFiles names rendered icons by component, suffixing the id on clashes.
+func iconFiles(images []fetch.Image, names map[string]string) []handoffFile {
 	var files []handoffFile
 	used := map[string]bool{}
-	for _, img := range res.Images {
+	for _, img := range images {
 		file := cache.Slug(names[img.ID])
 		if used[file] {
 			file += "--" + cache.NodeIDSegment(img.ID)
@@ -193,7 +208,7 @@ func handoffIcons(ctx context.Context, session *fetch.Session, records []simplif
 		used[file] = true
 		files = append(files, handoffFile{kind: "icon", name: names[img.ID], src: img.Path, rel: filepath.Join("icons", file+".svg")})
 	}
-	return files, nil
+	return files
 }
 
 func handoffImages(ctx context.Context, session *fetch.Session, store *cache.NodeStore, id string) ([]handoffFile, error) {

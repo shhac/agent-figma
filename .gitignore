@@ -1,0 +1,8 @@
+/agent-figma
+/dist/
+/release/
+/.cache/
+/.DS_Store
+/.ai-cache/
+coverage.out
+.env*

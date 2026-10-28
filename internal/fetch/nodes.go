@@ -2,7 +2,6 @@ package fetch
 
 import (
 	"context"
-	"slices"
 	"strconv"
 
 	agenterrors "github.com/shhac/lib-agent-output"
@@ -34,15 +33,18 @@ func (s *Session) Nodes(ctx context.Context, ids []string, depth int) (*NodesRes
 	}
 	satisfied := func(st *cache.NodeStore) bool {
 		for _, id := range ids {
-			if !st.Has(id, depth) {
+			if !st.Has(id, depth) && !st.IsMissing(id) {
 				return false
 			}
 		}
 		return true
 	}
 	store, err := s.answerFromCache(version, satisfied)
-	if err != nil || store != nil {
-		return &NodesResult{Store: store}, err
+	if err != nil {
+		return nil, err
+	}
+	if store != nil {
+		return &NodesResult{Store: store, Missing: missingOf(store, ids)}, nil
 	}
 	known := s.knownStore(version)
 	var need []string
@@ -59,9 +61,18 @@ func (s *Session) Nodes(ctx context.Context, ids []string, depth int) (*NodesRes
 	if err != nil {
 		return nil, err
 	}
-	// Ids already cached under this version count as answered.
-	result.Missing = slices.DeleteFunc(result.Missing, func(id string) bool { return result.Store.Has(id, 0) })
+	result.Missing = missingOf(result.Store, ids)
 	return result, nil
+}
+
+func missingOf(store *cache.NodeStore, ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		if store.IsMissing(id) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // Document makes sure the file's tree is cached to depth levels from the
@@ -163,13 +174,7 @@ func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth i
 		return nil, err
 	}
 	s.Prefetched.Nodes += countNew(store, extras)
-	var missing []string
-	for _, id := range need {
-		if !store.Has(id, 0) {
-			missing = append(missing, id)
-		}
-	}
-	return &NodesResult{Store: store, Missing: missing}, nil
+	return &NodesResult{Store: store}, nil
 }
 
 func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string, depth int) (*NodesResult, error) {
@@ -188,10 +193,8 @@ func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string,
 	if err != nil {
 		return nil, err
 	}
-	var missing []string
 	store, err := s.File.UpdateNodes(s.versionOf(resp.Version), func(st *cache.NodeStore) error {
-		var merr error
-		missing, merr = st.MergeNodes(resp, depth)
+		_, merr := st.MergeNodes(resp, depth)
 		return merr
 	})
 	if err != nil {
@@ -200,8 +203,7 @@ func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string,
 	s.recordVersion(resp.Version, resp.Name)
 	s.noteStore(store, false, "")
 	s.Prefetched.Nodes += countNew(store, extras)
-	missing = slices.DeleteFunc(missing, func(id string) bool { return !slices.Contains(need, id) })
-	return &NodesResult{Store: store, Missing: missing}, nil
+	return &NodesResult{Store: store}, nil
 }
 
 func (s *Session) getFile(ctx context.Context, q map[string][]string) (*figma.FileResponse, error) {

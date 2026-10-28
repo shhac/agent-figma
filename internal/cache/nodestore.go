@@ -35,6 +35,9 @@ type NodeStore struct {
 	Components    map[string]figma.Component    `json:"components,omitempty"`
 	ComponentSets map[string]figma.ComponentSet `json:"component_sets,omitempty"`
 	Styles        map[string]figma.Style        `json:"styles,omitempty"`
+	// Missing are ids Figma said this version does not have, so asking
+	// again costs nothing.
+	Missing map[string]bool `json:"missing,omitempty"`
 }
 
 func NewNodeStore(version string) *NodeStore {
@@ -52,6 +55,16 @@ func (s *NodeStore) Has(id string, depth int) bool {
 		return true
 	}
 	return depth != Full && n.KnownDepth >= depth
+}
+
+// IsMissing reports an id Figma said this version does not have.
+func (s *NodeStore) IsMissing(id string) bool { return s.Missing[id] }
+
+func (s *NodeStore) markMissing(id string) {
+	if s.Missing == nil {
+		s.Missing = map[string]bool{}
+	}
+	s.Missing[id] = true
 }
 
 // Node decodes a stored node's properties.
@@ -122,6 +135,11 @@ func (s *NodeStore) MergeFile(resp *figma.FileResponse, requested []string, dept
 		return fmt.Errorf("decode file document: %w", err)
 	}
 	s.Root = root
+	for _, id := range requested {
+		if s.Nodes[id] == nil {
+			s.markMissing(id)
+		}
+	}
 	return nil
 }
 
@@ -134,6 +152,7 @@ func (s *NodeStore) MergeNodes(resp *figma.NodesResponse, depth int) ([]string, 
 	for id, entry := range resp.Nodes {
 		if entry == nil || len(entry.Document) == 0 || string(entry.Document) == "null" {
 			missing = append(missing, id)
+			s.markMissing(id)
 			continue
 		}
 		s.mergeMaps(entry.Components, entry.ComponentSets, entry.Styles)
@@ -200,6 +219,7 @@ func (s *NodeStore) mergeTree(raw json.RawMessage, w treeWalk) (string, error) {
 // put merges one node: the deeper knowledge of its children wins, and known
 // placement (parent, page) is never forgotten.
 func (s *NodeStore) put(id string, in *StoredNode) {
+	delete(s.Missing, id)
 	if in.KnownDepth == 0 {
 		in.Children = nil
 	}

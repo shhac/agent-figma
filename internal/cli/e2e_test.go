@@ -311,12 +311,17 @@ func TestOffline(t *testing.T) {
 	}
 }
 
-func TestUnknownNodeIsUnresolved(t *testing.T) {
-	mockEnv(t)
-	r := mustRun(t, "nodes", "get", fileKey, "--node", "99:99")
-	un := r.metaAll(t, "@unresolved")
-	if len(un) != 1 || un[0]["id"] != "99:99" {
-		t.Fatalf("unresolved: %s", r.stdout)
+func TestUnknownNodeIsUnresolvedAndRemembered(t *testing.T) {
+	srv := mockEnv(t)
+	for i := 0; i < 2; i++ {
+		r := mustRun(t, "nodes", "get", fileKey, "--node", "99:99")
+		un := r.metaAll(t, "@unresolved")
+		if len(un) != 1 || un[0]["id"] != "99:99" {
+			t.Fatalf("unresolved: %s", r.stdout)
+		}
+	}
+	if srv.Stats().Tier1 != 1 {
+		t.Fatalf("a known miss should not be asked about again: tier1=%d", srv.Stats().Tier1)
 	}
 }
 

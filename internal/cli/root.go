@@ -54,6 +54,7 @@ func newRootCmd(version string) *cobra.Command {
 	registerReads(root, globals)
 	registerCache(root, globals)
 	registerDiff(root, globals)
+	registerHandoff(root, globals)
 
 	installUnknownSubcommandHandlers(root)
 	registerMCP(root)

@@ -528,3 +528,35 @@ func TestInstancesFoldAndComponentsSummarise(t *testing.T) {
 		t.Fatal("--expand-instances should show insides")
 	}
 }
+
+func TestHandoffWritesAFolderWithinBudget(t *testing.T) {
+	srv := mockEnv(t)
+	out := t.TempDir()
+	r := mustRun(t, "handoff", fileLink(mockfigma.NodeCheckout), "--out", out)
+	kinds := map[string]int{}
+	for _, rec := range r.lines(t) {
+		kind, _ := rec["kind"].(string)
+		if kind == "" {
+			continue
+		}
+		kinds[kind]++
+		if path, _ := rec["path"].(string); path != "" {
+			if info, err := os.Stat(path); err != nil || info.Size() == 0 {
+				t.Fatalf("%s missing: %v", path, err)
+			}
+		}
+	}
+	for _, k := range []string{"screenshot", "icon", "image", "tree", "components", "styles", "manifest"} {
+		if kinds[k] == 0 {
+			t.Fatalf("handoff lacks %s: %v\n%s", k, kinds, r.stdout)
+		}
+	}
+	stats := srv.Stats()
+	if stats.Tier1 > 3 || stats.Tier2 > 1 {
+		t.Fatalf("handoff budget: tier1=%d tier2=%d", stats.Tier1, stats.Tier2)
+	}
+	mustRun(t, "handoff", fileLink(mockfigma.NodeCheckout), "--out", t.TempDir())
+	if after := srv.Stats(); after.Tier1 != stats.Tier1 || after.Tier2 != stats.Tier2 {
+		t.Fatal("a repeated handoff should come from the cache")
+	}
+}

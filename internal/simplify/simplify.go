@@ -87,6 +87,9 @@ func Simplify(store *cache.NodeStore, roots []string, opts Options) Result {
 	w := &walker{store: store, opts: opts, styles: newStyleTable(store)}
 	included := w.plan(roots)
 	for _, root := range roots {
+		if _, known := w.node(root); known && !included[root] {
+			w.next = append(w.next, root)
+		}
 		w.emit(root, 0, included)
 	}
 	return Result{Records: w.records, Styles: w.styles.finish(w.records), Next: w.next}

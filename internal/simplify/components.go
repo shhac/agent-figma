@@ -13,6 +13,15 @@ import (
 
 const maxVariantNodes = 10
 
+// CodeRef is the code component a design-system component maps to, from
+// the repository's mapping.
+type CodeRef struct {
+	Component string         `json:"component"`
+	Import    string         `json:"import,omitempty"`
+	Notes     string         `json:"notes,omitempty"`
+	Props     map[string]any `json:"props,omitempty"`
+}
+
 // ComponentUse is one component set (or standalone component) used in the
 // output, with the variants used and where.
 type ComponentUse struct {
@@ -25,9 +34,9 @@ type ComponentUse struct {
 	Remote         bool   `json:"remote,omitempty"`
 	Count          int    `json:"count"`
 	// Mapped and Code come from the repository's component mapping.
-	Mapped       *bool          `json:"mapped,omitempty"`
-	Code         map[string]any `json:"code,omitempty"`
-	Variants     []VariantUse   `json:"variants,omitempty"`
+	Mapped       *bool        `json:"mapped,omitempty"`
+	Code         *CodeRef     `json:"code,omitempty"`
+	Variants     []VariantUse `json:"variants,omitempty"`
 	variantIndex map[string]int
 }
 

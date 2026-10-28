@@ -63,7 +63,7 @@ type Record struct {
 	Component *ComponentRef `json:"component,omitempty"`
 	// Code is the mapped code component for an instance, when the
 	// repository maps its component.
-	Code     map[string]any      `json:"code,omitempty"`
+	Code     *CodeRef            `json:"code,omitempty"`
 	Props    map[string]any      `json:"props,omitempty"`
 	Variants map[string][]string `json:"variant_props,omitempty"`
 	Export   bool                `json:"export,omitempty"`

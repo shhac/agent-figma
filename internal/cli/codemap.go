@@ -3,7 +3,6 @@ package cli
 import (
 	"cmp"
 	"context"
-	"os"
 	"strings"
 
 	agenterrors "github.com/shhac/lib-agent-output"
@@ -17,96 +16,6 @@ import (
 	"github.com/shhac/agent-figma/internal/simplify"
 )
 
-// mapping is the repository's component-to-code mapping, when it has one.
-type mapping struct {
-	path   string
-	exists bool
-	file   *codemap.File
-}
-
-// loadMapping reads the mapping for a map command, where a broken file is
-// the problem to report.
-func loadMapping(globals *shared.GlobalFlags) (mapping, error) {
-	wd, _ := os.Getwd()
-	path, exists := codemap.Locate(globals.ComponentsFile, wd)
-	f, err := codemap.Load(path)
-	if err != nil {
-		return mapping{}, agenterrors.Wrap(err, agenterrors.FixableByAgent).WithHint("Fix or move " + path + "; 'agent-figma components map --help' describes the format.")
-	}
-	return mapping{path: path, exists: exists, file: f}, nil
-}
-
-// readMapping reads the mapping for a read command, which should still
-// answer when the mapping is broken: it notes the problem and goes unmapped.
-func readMapping(globals *shared.GlobalFlags) mapping {
-	m, err := loadMapping(globals)
-	if err != nil {
-		output.Notice("Ignoring the component mapping: "+err.Error(), "Output is unmapped until the file is fixed.")
-		return mapping{}
-	}
-	return m
-}
-
-// refuseMappingWrite keeps MCP clients from writing into the server's
-// filesystem, as --out is refused there.
-func refuseMappingWrite() error {
-	if os.Getenv(ViaMCPEnv) == "" {
-		return nil
-	}
-	return agenterrors.New("changing the component mapping is not available through the MCP server", agenterrors.FixableByHuman).
-		WithHint("Run 'agent-figma components map add' (or suggest --write) in a terminal in the repository.")
-}
-
-// annotate adds the mapped code component to @components entries and
-// instance records. Without a mapping file nothing is added, so output stays
-// lean until a repository opts in.
-func (m mapping) annotate(result *simplify.Result, store *cache.NodeStore) {
-	if !m.exists {
-		return
-	}
-	m.annotateUses(result.Components)
-	m.annotateRecords(result.Records, store)
-}
-
-// annotateUses marks each component use mapped or not, with its code.
-func (m mapping) annotateUses(uses []simplify.ComponentUse) {
-	for i := range uses {
-		u := &uses[i]
-		entry := m.file.Lookup(u.SetKey, u.Key, cmp.Or(u.Set, u.Component))
-		mapped := entry != nil
-		u.Mapped = &mapped
-		if !mapped {
-			continue
-		}
-		u.Code = codeRef(entry)
-		for j := range u.Variants {
-			u.Variants[j].CodeProps = entry.CodeProps(u.Variants[j].Props)
-		}
-	}
-}
-
-// annotateRecords adds the mapped code component to instance records.
-func (m mapping) annotateRecords(records []simplify.Record, store *cache.NodeStore) {
-	for i := range records {
-		rec := &records[i]
-		if rec.Component == nil {
-			continue
-		}
-		c := store.Components[rec.Component.ID]
-		if entry := m.file.Lookup(store.ComponentSets[c.ComponentSetID].Key, c.Key, cmp.Or(rec.Component.Set, rec.Component.Name)); entry != nil {
-			code := codeRef(entry)
-			if props := entry.CodeProps(rec.Props); len(props) > 0 {
-				code["props"] = props
-			}
-			rec.Code = code
-		}
-	}
-}
-
-func codeRef(e *codemap.Entry) map[string]any {
-	return pruned(map[string]any{"component": e.Code.Component, "import": e.Code.Import, "notes": e.Notes})
-}
-
 func registerComponentMap(group *cobra.Command, globals *shared.GlobalFlags) {
 	mapCmd := &cobra.Command{
 		Use:   "map",
@@ -116,6 +25,13 @@ func registerComponentMap(group *cobra.Command, globals *shared.GlobalFlags) {
 Figma's published component and set keys, which are the same for every user and token. Once it
 exists, @components and instance records carry the mapped code component and props.`,
 	}
+	registerMapStatus(mapCmd, globals)
+	registerMapAdd(mapCmd, globals)
+	registerMapSuggest(mapCmd, globals)
+	group.AddCommand(mapCmd)
+}
+
+func registerMapStatus(parent *cobra.Command, globals *shared.GlobalFlags) {
 	var statusNodes []string
 	status := &cobra.Command{
 		Use:   "status <ref>",
@@ -149,8 +65,10 @@ exists, @components and instance records carry the mapped code component and pro
 		},
 	}
 	status.Flags().StringArrayVar(&statusNodes, "node", nil, "Subtree to check (default: every component in the cached file)")
-	mapCmd.AddCommand(status)
+	parent.AddCommand(status)
+}
 
+func registerMapAdd(parent *cobra.Command, globals *shared.GlobalFlags) {
 	var setKey, key, name, component, importPath, notes string
 	var propFlags, valueFlags, ignoreFlags []string
 	add := &cobra.Command{
@@ -192,8 +110,10 @@ exists, @components and instance records carry the mapped code component and pro
 	f.StringArrayVar(&propFlags, "prop", nil, "Figma property to code prop, as Figma=code (repeatable)")
 	f.StringArrayVar(&valueFlags, "value", nil, "Figma value to code value, as Property.figma=code (repeatable)")
 	f.StringArrayVar(&ignoreFlags, "ignore", nil, "Figma property to drop, e.g. State (repeatable)")
-	mapCmd.AddCommand(add)
+	parent.AddCommand(add)
+}
 
+func registerMapSuggest(parent *cobra.Command, globals *shared.GlobalFlags) {
 	var suggestNodes []string
 	var src string
 	var write bool
@@ -229,25 +149,8 @@ exists, @components and instance records carry the mapped code component and pro
 				if err != nil {
 					return err
 				}
-				written := 0
-				for _, u := range uses {
-					name := cmp.Or(u.Set, u.Component)
-					if m.file.Lookup(u.SetKey, u.Key, name) != nil {
-						continue
-					}
-					match, ok := codemap.BestMatch(name, exports)
-					rec := pruned(map[string]any{"set": u.Set, "component": u.Component, "set_key": u.SetKey, "key": u.Key, "count": u.Count})
-					if !ok {
-						rec["match"] = "none"
-						stream.Item(rec)
-						continue
-					}
-					rec["match"], rec["code"] = match.Confidence, match.Export
-					if write && match.Confidence == "exact" {
-						m.file.Upsert(codemap.Entry{Figma: codemap.FigmaRef{SetKey: u.SetKey, Key: u.Key, Name: name}, Code: codemap.Code{Component: match.Export.Name, Import: match.Export.Import}})
-						rec["written"] = true
-						written++
-					}
+				recs, written := proposeMappings(uses, exports, m.file, write)
+				for _, rec := range recs {
 					stream.Item(rec)
 				}
 				if written > 0 {
@@ -263,8 +166,36 @@ exists, @components and instance records carry the mapped code component and pro
 	suggest.Flags().StringArrayVar(&suggestNodes, "node", nil, "Subtree whose components to map (default: every component in the cached file)")
 	suggest.Flags().StringVar(&src, "src", "", "Directory to scan for code components (default: the mapping's repository root)")
 	suggest.Flags().BoolVar(&write, "write", false, "Add exact matches to the mapping file")
-	mapCmd.AddCommand(suggest)
-	group.AddCommand(mapCmd)
+	parent.AddCommand(suggest)
+}
+
+// proposeMappings matches each unmapped component against the code exports,
+// adding exact matches to f when write is set. It returns one record per
+// unmapped component and how many entries it added.
+func proposeMappings(uses []simplify.ComponentUse, exports []codemap.Export, f *codemap.File, write bool) ([]map[string]any, int) {
+	var recs []map[string]any
+	written := 0
+	for _, u := range uses {
+		name := cmp.Or(u.Set, u.Component)
+		if f.Lookup(u.SetKey, u.Key, name) != nil {
+			continue
+		}
+		rec := pruned(map[string]any{"set": u.Set, "component": u.Component, "set_key": u.SetKey, "key": u.Key, "count": u.Count})
+		match, ok := codemap.BestMatch(name, exports)
+		if !ok {
+			rec["match"] = "none"
+			recs = append(recs, rec)
+			continue
+		}
+		rec["match"], rec["code"] = match.Confidence, match.Export
+		if write && match.Confidence == "exact" {
+			f.Upsert(codemap.Entry{Figma: codemap.FigmaRef{SetKey: u.SetKey, Key: u.Key, Name: name}, Code: codemap.Code{Component: match.Export.Name, Import: match.Export.Import}})
+			rec["written"] = true
+			written++
+		}
+		recs = append(recs, rec)
+	}
+	return recs, written
 }
 
 func applyPropFlags(e *codemap.Entry, props, values, ignores []string) error {

@@ -12,6 +12,7 @@ import (
 	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/cli/shared"
 	"github.com/shhac/agent-figma/internal/fetch"
+	"github.com/shhac/agent-figma/internal/notes"
 	"github.com/shhac/agent-figma/internal/output"
 	"github.com/shhac/agent-figma/internal/simplify"
 )
@@ -27,9 +28,10 @@ func registerHandoff(root *cobra.Command, globals *shared.GlobalFlags) {
 		Short: "Everything needed to build one node, in one folder (at most 3 Tier 1 calls)",
 		Long: `Writes a folder for building --node: screenshot.png, tree.ndjson (simplified nodes, instances folded,
 with @styles and @components), components.json, styles.json, icons/*.svg (every svg:true node, one per
-component), images/* (image fills), and manifest.json. Spends at most three Tier 1 calls (the subtree,
-the screenshot, the icons) and one Tier 2 call (image fills), each skipped when cached. The folder
-defaults to the cache; --out writes elsewhere.`,
+component), images/* (image fills), notes.json (designer notes and comments around it), and
+manifest.json. Spends at most three Tier 1 calls (the subtree, the screenshot, the icons) and two Tier 2
+calls (image fills, comments), each skipped when cached. The folder defaults to the cache; --out writes
+elsewhere.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, err := shared.ParseRef(args[0], nodes)
@@ -102,6 +104,10 @@ func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, s
 	for _, img := range shot.Images {
 		files = append(files, handoffFile{kind: "screenshot", name: node.Name, src: img.Path, rel: "screenshot.png"})
 	}
+	found, cov, err := collectNotes(ctx, session, id, notes.DefaultRadius, true)
+	if err != nil {
+		return nil, err
+	}
 	icons, err := handoffIcons(ctx, session, tree.Records)
 	if err != nil {
 		return nil, err
@@ -128,6 +134,7 @@ func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, s
 		{"tree.ndjson", "tree", func(p string) error { return writeTree(p, tree) }},
 		{"components.json", "components", func(p string) error { return writeJSON(p, tree.Components) }},
 		{"styles.json", "styles", func(p string) error { return writeJSON(p, tree.Styles) }},
+		{"notes.json", "notes", func(p string) error { return writeJSON(p, map[string]any{"notes": found, "coverage": cov}) }},
 	}
 	for _, d := range documents {
 		dest := filepath.Join(dir, d.rel)
@@ -138,8 +145,9 @@ func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, s
 	}
 	manifest := filepath.Join(dir, "manifest.json")
 	if err := writeJSON(manifest, map[string]any{
-		"node": map[string]any{"id": id, "name": node.Name, "type": node.Type},
-		"file": session.FileInfo, "files": records, "budget": session.Budget(),
+		"node":  map[string]any{"id": id, "name": node.Name, "type": node.Type},
+		"notes": len(found),
+		"file":  session.FileInfo, "files": records, "budget": session.Budget(),
 	}); err != nil {
 		return nil, agenterrors.Wrap(err, agenterrors.FixableByHuman)
 	}

@@ -81,7 +81,7 @@ func TestRateLimitFaultByPathUnlimited(t *testing.T) {
 
 func TestTooLargeFaultHonoursMinNodes(t *testing.T) {
 	_, ts := newTestServer(t)
-	arm(t, ts, "too-large:/v1/files:min_nodes=10")
+	arm(t, ts, "too-large:/v1/files:min_nodes=14")
 
 	resp := get(t, ts, filePath)
 	if body := resp.json(t); resp.status != http.StatusBadRequest || body["err"] != "Request too large. If applicable, filter by query params." {

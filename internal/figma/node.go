@@ -48,6 +48,8 @@ type Node struct {
 	ComponentProperties          map[string]ComponentProperty    `json:"componentProperties,omitempty"`
 	ComponentPropertyDefinitions map[string]ComponentPropertyDef `json:"componentPropertyDefinitions,omitempty"`
 	ExportSettings               []ExportSetting                 `json:"exportSettings,omitempty"`
+	// Annotations are Dev Mode annotations, when the file has any.
+	Annotations []Annotation `json:"annotations,omitempty"`
 }
 
 // IsVisible reports the node's own visibility; Figma omits the field when true.
@@ -150,4 +152,9 @@ type ExportSetting struct {
 type Constraint struct {
 	Type  string  `json:"type"`
 	Value float64 `json:"value"`
+}
+
+type Annotation struct {
+	Label         string `json:"label,omitempty"`
+	LabelMarkdown string `json:"labelMarkdown,omitempty"`
 }

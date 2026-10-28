@@ -189,7 +189,7 @@ func TestFileDepthCountsFromRoot(t *testing.T) {
 
 	doc = getOK(t, ts, filePath+"?depth=2")["document"]
 	screens := dig(t, doc, "children", 2)
-	if got := childIDs(t, screens); !equalStrings(got, []string{NodeCheckout}) {
+	if got := childIDs(t, screens); !equalStrings(got, []string{NodeCheckout, NodeCheckoutNote, NodeStickyNote, NodeFarText, NodeConfirmSection}) {
 		t.Fatalf("depth=2 Screens children = %v", got)
 	}
 	if hasChildrenKey(dig(t, screens, "children", 0)) {

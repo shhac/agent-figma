@@ -67,7 +67,9 @@ One command that leaves everything needed to build a screen in one folder, so an
 - `images/<image_ref>.<ext>` — image fills (one Tier 2 call for the whole file's map, cached).
 - `manifest.json` — what is where, the file version, and the budget spent.
 
-At most three Tier 1 calls (node subtree, PNG render, SVG render) and one Tier 2, each skipped when cached. The folder defaults to `<cache>/<profile>/<file>/v-<version>/handoff/<node-slug>--<id>/`; `--out` writes elsewhere (refused under MCP, where the files are read through the cache root). Stdout is one manifest line per file plus `@file` and `@budget`.
+- `notes.json` — designer notes and comments around the node (see Designer notes).
+
+At most three Tier 1 calls (node subtree, PNG render, SVG render) and two Tier 2 (image fills, comments), each skipped when cached. The folder defaults to `<cache>/<profile>/<file>/v-<version>/handoff/<node-slug>--<id>/`; `--out` writes elsewhere (refused under MCP, where the files are read through the cache root). Stdout is one manifest line per file plus `@file` and `@budget`.
 
 ## 4. `compare`
 
@@ -135,7 +137,7 @@ Sources, for a node:
 - **canvas** — visible TEXT nodes and note-like nodes (names containing "sticky", "note", "annotation", "comment", "todo") that are siblings of the node or of its ancestors up to the page and lie within `--radius` (default 400 px) of the node's box. Each carries `distance` and `position` (`above`, `below`, `left`, `right`, `overlapping`).
 - **section** — text directly inside a `SECTION` that contains the node, at any distance: text in a section describes its contents.
 - **comment** — Figma comments pinned to the node or a descendant (`client_meta.node_id`), with author, date, and resolved state, replies attached to their thread. One Tier 2 call.
-- **description** — the descriptions of components the subtree uses.
+- **description** — the descriptions of components the subtree uses, except keyword lists ("Close, Cancel, X"), which icon libraries use for search rather than guidance.
 - **annotation** — Dev Mode annotations (`annotations[].label`) on the node or its descendants, when present.
 
 `nodes notes <ref> --node id [--no-comments] [--radius 400]` prints one record per note, and `handoff` writes `notes.json` (with a count in the manifest). Canvas notes need the node's siblings cached; when they are not, `@notes_coverage` says so and suggests `file outline --node <parent>` (one Tier 1 call) rather than spending it silently.

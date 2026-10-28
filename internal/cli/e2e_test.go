@@ -557,7 +557,7 @@ func TestHandoffWritesAFolderWithinBudget(t *testing.T) {
 		}
 	}
 	stats := srv.Stats()
-	if stats.Tier1 > 3 || stats.Tier2 > 1 {
+	if stats.Tier1 > 3 || stats.Tier2 > 2 {
 		t.Fatalf("handoff budget: tier1=%d tier2=%d", stats.Tier1, stats.Tier2)
 	}
 	mustRun(t, "handoff", fileLink(mockfigma.NodeCheckout), "--out", t.TempDir())
@@ -770,5 +770,47 @@ func TestComponentMapping(t *testing.T) {
 	inst := r.records(t)[mockfigma.NodeButtonInstance]
 	if instCode, _ := inst["code"].(map[string]any); instCode["component"] != "Button" {
 		t.Fatalf("instance records should carry the mapped component: %v", inst)
+	}
+}
+
+func TestDesignerNotes(t *testing.T) {
+	mockEnv(t)
+	bySource := func(r result) map[string][]map[string]any {
+		out := map[string][]map[string]any{}
+		for _, rec := range r.lines(t) {
+			if s, ok := rec["source"].(string); ok {
+				out[s] = append(out[s], rec)
+			}
+		}
+		return out
+	}
+	// Siblings unknown yet: comments and descriptions, plus a coverage warning.
+	r := mustRun(t, "nodes", "notes", fileKey, "--node", mockfigma.NodeCheckout)
+	notes := bySource(r)
+	if len(notes["comment"]) == 0 || len(notes["description"]) == 0 || r.meta(t, "@notes_coverage") == nil {
+		t.Fatalf("before an outline: %s", r.stdout)
+	}
+	mustRun(t, "file", "outline", fileKey)
+	r = mustRun(t, "nodes", "notes", fileKey, "--node", mockfigma.NodeCheckout)
+	notes = bySource(r)
+	ids := map[string]string{}
+	for _, n := range notes["canvas"] {
+		ids[n["node_id"].(string)] = n["position"].(string)
+	}
+	if ids[mockfigma.NodeCheckoutNote] != "right" || ids[mockfigma.NodeStickyNote] != "above" {
+		t.Fatalf("canvas notes beside Checkout: %v", notes["canvas"])
+	}
+	if _, far := ids[mockfigma.NodeFarText]; far || r.meta(t, "@notes_coverage") != nil {
+		t.Fatalf("far text should be out of radius and coverage complete: %s", r.stdout)
+	}
+	r = mustRun(t, "nodes", "notes", fileKey, "--node", mockfigma.NodeConfirmation, "--no-comments")
+	if sec := bySource(r)["section"]; len(sec) != 1 || sec[0]["node_id"] != mockfigma.NodeSectionNote {
+		t.Fatalf("section text describes its frames: %s", r.stdout)
+	}
+	out := t.TempDir()
+	mustRun(t, "handoff", fileKey, "--node", mockfigma.NodeCheckout, "--out", out)
+	raw, err := os.ReadFile(filepath.Join(out, "notes.json"))
+	if err != nil || !strings.Contains(string(raw), mockfigma.NodeStickyNote) {
+		t.Fatalf("handoff notes.json: %v %s", err, raw)
 	}
 }

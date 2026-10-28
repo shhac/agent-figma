@@ -75,10 +75,40 @@ func buildDocument() *node {
 	root := el("DOCUMENT", NodeDocument, "Document", props{"scrollBehavior": "SCROLLS"},
 		canvas(NodeCoverPage, "Cover", coverFrame()),
 		canvas(NodeComponentsPage, "Components", buttonSet(), iconStar()),
-		canvas(NodeScreensPage, "Screens", checkout()),
+		canvas(NodeScreensPage, "Screens", append([]*node{checkout()}, canvasNotes()...)...),
 	)
 	root.walk(addGeometry)
 	return root
+}
+
+// Canvas notes around Checkout, the way designers leave context beside the
+// frames they describe: a note close by, a sticky, a stray text far away
+// (outside any sensible radius), and a section whose text describes it.
+const (
+	NodeCheckoutNote     = "7:1"
+	NodeStickyNote       = "7:2"
+	NodeStickyText       = "7:3"
+	NodeFarText          = "7:4"
+	NodeConfirmSection   = "7:10"
+	NodeConfirmation     = "7:11"
+	NodeConfirmationText = "7:12"
+	NodeSectionNote      = "7:13"
+)
+
+func canvasNotes() []*node {
+	return []*node{
+		text(NodeCheckoutNote, "Note", "Totals include tax; round to cents.", 420, 40, 280, 24, typeBody(), nil),
+		el("FRAME", NodeStickyNote, "Sticky note", merge(box(0, -120, 300, 80), frameStyle(paints(solid(colorSurface)))),
+			text(NodeStickyText, "Sticky text", "Hand-off: Pay stays disabled until a card is entered.", 12, -108, 276, 56, typeBody(), nil),
+		),
+		text(NodeFarText, "Scratch", "Unrelated scratch text", 2000, 0, 200, 24, typeBody(), nil),
+		el("SECTION", NodeConfirmSection, "Confirmation flow", merge(box(0, 1200, 800, 600), props{"fills": paints(solid(colorWhite))}),
+			text(NodeSectionNote, "Section note", "Shown after payment succeeds.", 40, 1220, 400, 24, typeBody(), nil),
+			el("FRAME", NodeConfirmation, "Confirmation", merge(box(40, 1300, 375, 400), frameStyle(paints(solid(colorWhite)))),
+				text(NodeConfirmationText, "Done", "Payment complete", 64, 1324, 300, 56, typeH1(), nil),
+			),
+		),
+	}
 }
 
 func canvas(id, name string, kids ...*node) *node {

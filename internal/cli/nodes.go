@@ -25,6 +25,7 @@ func registerNodes(root *cobra.Command, globals *shared.GlobalFlags) {
 	}
 	registerNodesGet(nodes, globals)
 	registerNodesFind(nodes, globals)
+	registerNodesNotes(nodes, globals)
 	root.AddCommand(nodes)
 }
 

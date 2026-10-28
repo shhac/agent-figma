@@ -165,7 +165,7 @@ Per file (`<cache>/<profile>/<file_key>/head.json`): the latest known `version`,
 
 A file being edited changes version constantly, and on a `low` seat refetching after every edit would burn the monthly Tier 1 allowance. So when the current version has nothing cached but an older version can answer, `serve_stale` decides: `on` answers from the older version with `@file.stale: true` and `latest_version`; `off` refetches; `auto` (default) is `on` for `low` seats and `off` otherwise. `--refresh` forces the check and a refetch, and is never answered from an older version; `--offline` never calls Figma and uses the newest cached version for the selected profile and the key the ref resolves to. If `/meta` fails (403 for a missing `file_metadata:read`, or no `version`), the command treats the cache as unvalidated, fetches, and emits a notice suggesting the scope.
 
-A query is answered from the node store when the requested subtree is present to the requested depth; otherwise it fetches. `cache status` reports what is cached per file and version; `cache clear` removes it.
+A query is answered from the node store when the requested subtree is present to the requested depth (a node known only shallowly still counts when its children list is known and every child's subtree is complete); otherwise it fetches only the ids the current version lacks, never ids judged cached by an older version's store, which is used only to plan extras. `cache status` reports what is cached per file and version; `cache clear` removes it.
 
 ## Fetch wide, return lean (prefetch)
 

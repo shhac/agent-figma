@@ -84,6 +84,68 @@ Answers "does this match, and where not" from an implementation screenshot the a
 
 `compare` spends at most one Tier 1 call (the render), plus one if the node is not cached.
 
-## 5. Labels (later)
+## 5. Labels
 
-Generically named frames get a `label` from their largest heading text, used in outlines, `find`, paths, and file names. Deferred until after the four above.
+Production files name their building blocks generically: many frames share one name like "Card", and wrappers are auto-named "Group 12". A node's `label` is the text of its most prominent heading, so an agent (and a human reading file names) sees "Order summary" rather than "Card".
+
+- Computed for containers (`FRAME`, `GROUP`, `SECTION`, `COMPONENT`, `COMPONENT_SET`, `INSTANCE`) whose name is empty after auto-name stripping, is a generic word (card, container, content, wrapper, frame, group, section, box, item, row, column, stack, body, layout, block — after dropping emoji and punctuation), or is shared by three or more nodes in the output.
+- The heading is the visible TEXT descendant with the largest font size (the first in depth order among equals), cut to 60 characters. No text, no label.
+- Used in: node records (`label`), `file outline`, `nodes find` (matches name or label), `diff` paths, `handoff` folder names, and render, export, and handoff file names (`order-summary--2-30.png`).
+
+## 6. Mapping components to code
+
+`@components` says which design-system components a screen uses; building needs to know which *code* component each one is. That mapping belongs to a codebase, not to a Figma account, so it lives in the repository and is checked in:
+
+```text
+<repo-root>/.agent-figma/components.json
+```
+
+The file is found by walking up from the working directory to the first directory containing `.agent-figma/` (so it works inside a monorepo package, and outside git); `--components-file` or `AGENT_FIGMA_COMPONENTS` override.
+
+**Keys, not ids or profiles.** A remote instance's `componentId` is a node id local to the *consuming* file, so it differs between files. The published `key` of the component and of its component set is global: the same for every user, file, and token, and present in every file response that uses it. Entries are keyed by `set_key` (variant sets) or `key` (standalone components), with `name` as a fallback for unpublished components. Nothing in the file mentions a profile, so two developers with differently named profiles, or tokens that can open different files, share one mapping.
+
+```json
+{
+  "version": 1,
+  "components": [
+    {
+      "figma": {"set_key": "fakecomponentsetkey0000000000000000000110", "name": "Button"},
+      "code": {"component": "Button", "import": "@/components/ui/button"},
+      "props": {
+        "State": {"ignore": true},
+        "Size": {"prop": "size", "values": {"md": "default", "sm": "small"}}
+      },
+      "notes": "Disabled is the disabled prop, not a variant"
+    }
+  ]
+}
+```
+
+- `props` maps a Figma variant property to a code prop and, optionally, value by value; unmapped values pass through; `ignore` drops interaction states (hover, pressed) that code handles itself.
+- Output: each `@components` entry gains `code: {component, import, notes?}` and `mapped: true`, and each variant `code_props`. Unmapped entries carry `mapped: false` and the `set_key`/`key` to add. Instance records gain `code` when mapped.
+- `components map status <ref> [--node id]` lists the components a subtree uses, mapped or not, and which mapping file is in use. `components map add (--set-key|--key) <k> --component <Name> [--import <path>] [--prop Figma=code]... [--name <figma name>]` writes an entry (creating the file if needed). `components map suggest <ref> --node id [--src dir] [--write]` proposes entries for unmapped components by matching their names against components exported from source files under the repository (`.tsx`, `.ts`, `.jsx`, `.js`, `.vue`, `.svelte`), printing them for review.
+- `handoff` writes the mapped view into `components.json`, so the folder says what to import.
+
+## 7. Designer notes
+
+Designs carry context outside the layers being built: sticky notes and loose text on the canvas beside a frame, text inside a section describing its flow, comments pinned to nodes ("truncate after two lines"), and component descriptions. Some is designer-to-designer, much is designer-to-implementer; all of it is worth surfacing, labelled by source, for the agent to weigh.
+
+Sources, for a node:
+
+- **canvas** — visible TEXT nodes and note-like nodes (names containing "sticky", "note", "annotation", "comment", "todo") that are siblings of the node or of its ancestors up to the page and lie within `--radius` (default 400 px) of the node's box. Each carries `distance` and `position` (`above`, `below`, `left`, `right`, `overlapping`).
+- **section** — text directly inside a `SECTION` that contains the node, at any distance: text in a section describes its contents.
+- **comment** — Figma comments pinned to the node or a descendant (`client_meta.node_id`), with author, date, and resolved state, replies attached to their thread. One Tier 2 call.
+- **description** — the descriptions of components the subtree uses.
+- **annotation** — Dev Mode annotations (`annotations[].label`) on the node or its descendants, when present.
+
+`nodes notes <ref> --node id [--no-comments] [--radius 400]` prints one record per note, and `handoff` writes `notes.json` (with a count in the manifest). Canvas notes need the node's siblings cached; when they are not, `@notes_coverage` says so and suggests `file outline --node <parent>` (one Tier 1 call) rather than spending it silently.
+
+## 8. Settings nudges
+
+Figma reveals the seat class and the plan only in 429 headers, so a profile's declarations can be wrong for a long time before anything says so. When the tool learns something that contradicts a profile's settings, it says so with the exact command that fixes it:
+
+- A 429 reporting `X-Figma-Rate-Limit-Type: low` on a profile declared `--seat full|dev`, or `high` on one declared `collab|view` → suggest `auth update <profile> --seat view` (or `--seat full`).
+- A 429 reporting `X-Figma-Plan-Tier` different from the declared `--plan`, or with none declared → suggest `auth update <profile> --plan <reported>`.
+- A `403 Invalid token` on a profile whose recorded expiry is still in the future → suggest `auth update <profile> --form --expires YYYY-MM-DD` (the token was revoked or the date is wrong).
+
+Suggestions are `{reason, command}` records: printed as a stderr `notice` when the observation is made, folded into the hint of the error that revealed them, and listed under `suggestions` in `auth check` and `auth list` until fixed. They never change a profile by themselves: declarations are the user's statement of fact, and one file's plan can legitimately differ from the profile's usual one.

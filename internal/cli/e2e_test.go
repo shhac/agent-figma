@@ -503,3 +503,28 @@ func TestSubtreeCompleteOnceChildrenAre(t *testing.T) {
 		t.Fatal("a node whose children are all cached should not be refetched")
 	}
 }
+
+func TestInstancesFoldAndComponentsSummarise(t *testing.T) {
+	mockEnv(t)
+	r := mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	recs := r.records(t)
+	if _, ok := recs[mockfigma.NodeInstanceLabel]; ok {
+		t.Fatal("instance insides should be folded by default")
+	}
+	if recs[mockfigma.NodeButtonInstance]["instance"] != true {
+		t.Fatalf("folded instance: %v", recs[mockfigma.NodeButtonInstance])
+	}
+	uses, _ := r.meta(t, "@components").([]any)
+	if len(uses) != 1 || uses[0].(map[string]any)["set"] != "Button" || uses[0].(map[string]any)["count"].(float64) != 2 {
+		t.Fatalf("@components: %v", uses)
+	}
+	r = mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout, "--view", "components")
+	// @file, one component record, @budget.
+	if lines := r.lines(t); len(lines) != 3 || lines[1]["set"] != "Button" {
+		t.Fatalf("--view components: %s", r.stdout)
+	}
+	r = mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout, "--expand-instances")
+	if _, ok := r.records(t)[mockfigma.NodeInstanceLabel]; !ok {
+		t.Fatal("--expand-instances should show insides")
+	}
+}

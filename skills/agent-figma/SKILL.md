@@ -44,6 +44,7 @@ for a token in the conversation or pass one on the command line yourself.
 |---|---|
 | `@file` | `{key, name, version, last_modified, editor_type}`; `stale: true` + `latest_version` when answered from an older cached version |
 | `@styles` | shared style table: records reference ids like `fill_972ecd24`, `text_75082aa8` |
+| `@components` | design-system components and variants used, with counts and node ids (instances are folded leaves; `--expand-instances` to see inside) |
 | records | one per node, depth-first (`id, parent, depth, type, name, size, layout, fills, text, svg?, …`), or one per downloaded file (a manifest line). Empty fields are left out |
 | `@unresolved` | `{id, reason, fixable_by, hint}` for an id Figma does not have or rendered as nothing; exit stays 0, and the miss is remembered for that file version |
 | `@related` | `{rel, id, of, name, type, props?, render?, cost}`: nearby nodes you may want next |

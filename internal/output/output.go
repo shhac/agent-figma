@@ -28,6 +28,7 @@ const (
 const (
 	MetaFile       = "@file"
 	MetaStyles     = "@styles"
+	MetaComponents = "@components"
 	MetaRelated    = "@related"
 	MetaBudget     = "@budget"
 	MetaUnresolved = "@unresolved"

@@ -31,6 +31,9 @@ type Options struct {
 	MaxDepth int
 	// MaxNodes caps emitted records across all roots (0 for no cap).
 	MaxNodes int
+	// ExpandInstances emits the insides of component instances. By default
+	// an instance is a leaf: its component, props, and texts.
+	ExpandInstances bool
 }
 
 // Record is one simplified node.
@@ -56,7 +59,11 @@ type Record struct {
 	Export    bool                `json:"export,omitempty"`
 	// SVG marks a vector, or a container of only vectors, best exported as
 	// one SVG; its children are not listed.
-	SVG      bool `json:"svg,omitempty"`
+	SVG bool `json:"svg,omitempty"`
+	// Texts are the visible texts inside a folded instance.
+	Texts []string `json:"texts,omitempty"`
+	// Instance marks an instance whose insides were folded.
+	Instance bool `json:"instance,omitempty"`
 	Children int  `json:"children,omitempty"`
 	// Truncated marks a node whose visible children were not emitted.
 	Truncated bool `json:"truncated,omitempty"`
@@ -80,11 +87,16 @@ type Result struct {
 	// Next are the ids to request to continue: nodes MaxNodes left out, and
 	// nodes whose children were never fetched.
 	Next []string
+	// Components summarises the component instances emitted.
+	Components []ComponentUse
 }
 
 // Simplify renders the subtrees under roots from the store.
 func Simplify(store *cache.NodeStore, roots []string, opts Options) Result {
-	w := &walker{store: store, opts: opts, styles: newStyleTable(store)}
+	w := &walker{store: store, opts: opts, styles: newStyleTable(store), roots: map[string]bool{}, uses: newComponentUses(store)}
+	for _, r := range roots {
+		w.roots[r] = true
+	}
 	included := w.plan(roots)
 	for _, root := range roots {
 		if _, known := w.node(root); known && !included[root] {
@@ -92,7 +104,7 @@ func Simplify(store *cache.NodeStore, roots []string, opts Options) Result {
 		}
 		w.emit(root, 0, included)
 	}
-	return Result{Records: w.records, Styles: w.styles.finish(w.records), Next: w.next}
+	return Result{Records: w.records, Styles: w.styles.finish(w.records), Next: w.next, Components: w.uses.list()}
 }
 
 type walker struct {
@@ -103,6 +115,14 @@ type walker struct {
 	next    []string
 	cache   map[string]figma.Node
 	svg     map[string]bool
+	roots   map[string]bool
+	uses    *componentUses
+}
+
+// folds reports an instance shown as a leaf: any instance, unless asked to
+// expand them or it is a requested root (whose insides were asked for).
+func (w *walker) folds(id string, n figma.Node) bool {
+	return n.Type == "INSTANCE" && !w.opts.ExpandInstances && !w.roots[id]
 }
 
 func (w *walker) node(id string) (figma.Node, bool) {
@@ -157,7 +177,8 @@ func (w *walker) plan(roots []string) map[string]bool {
 		}
 		included[it.id] = true
 		count++
-		if w.collapsesToSVG(it.id) || (w.opts.MaxDepth != cache.Full && it.depth >= w.opts.MaxDepth) {
+		n, _ := w.node(it.id)
+		if w.collapsesToSVG(it.id) || w.folds(it.id, n) || (w.opts.MaxDepth != cache.Full && it.depth >= w.opts.MaxDepth) {
 			continue
 		}
 		for _, c := range w.visibleChildren(it.id) {
@@ -178,11 +199,21 @@ func (w *walker) emit(id string, depth int, included map[string]bool) {
 	stored := w.store.Nodes[id]
 	svg := w.collapsesToSVG(id)
 	rec := w.record(n, stored, depth, svg)
+	if n.Type == "INSTANCE" {
+		w.uses.add(id, n)
+	}
 	if svg {
 		w.records = append(w.records, rec)
 		return
 	}
 	children := w.visibleChildren(id)
+	if w.folds(id, n) {
+		rec.Children = len(children)
+		rec.Instance = true
+		rec.Texts = w.texts(id, maxInstanceTexts)
+		w.records = append(w.records, rec)
+		return
+	}
 	rec.Children = len(children)
 	depthCut := w.opts.MaxDepth != cache.Full && depth >= w.opts.MaxDepth
 	// Children cut by MaxNodes, or never fetched (Figma refused the full
@@ -204,7 +235,33 @@ func (w *walker) emit(id string, depth int, included map[string]bool) {
 	}
 }
 
-const textPreviewRunes = 80
+const (
+	textPreviewRunes = 80
+	maxInstanceTexts = 8
+)
+
+// texts collects the visible text under id, depth first, previewed.
+func (w *walker) texts(id string, limit int) []string {
+	var out []string
+	var walk func(id string)
+	walk = func(id string) {
+		for _, c := range w.visibleChildren(id) {
+			if len(out) >= limit {
+				return
+			}
+			n, _ := w.node(c)
+			if n.Type == "TEXT" {
+				if t := preview(n.Characters, textPreviewRunes); t != "" {
+					out = append(out, t)
+				}
+				continue
+			}
+			walk(c)
+		}
+	}
+	walk(id)
+	return out
+}
 
 // preview is the first line of s, cut to max runes with an ellipsis.
 func preview(s string, max int) string {

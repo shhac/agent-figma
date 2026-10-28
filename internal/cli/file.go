@@ -67,6 +67,7 @@ const outlineDocumentDepth = 3
 func registerOutline(parent *cobra.Command, globals *shared.GlobalFlags) {
 	var nodes []string
 	var depth, maxNodes int
+	var expand bool
 	cmd := &cobra.Command{
 		Use:   "outline <ref>",
 		Short: "Structure only: id, type, name, size, child count, cache first",
@@ -97,7 +98,7 @@ func registerOutline(parent *cobra.Command, globals *shared.GlobalFlags) {
 						roots = root.Children
 					}
 				}
-				result := simplify.Simplify(store, roots, simplify.Options{View: simplify.ViewStructure, MaxDepth: depth, MaxNodes: maxNodes})
+				result := simplify.Simplify(store, roots, simplify.Options{View: simplify.ViewStructure, MaxDepth: depth, MaxNodes: maxNodes, ExpandInstances: expand})
 				return writeNodes(globals, session, result, missing, nil)
 			})
 		},
@@ -105,5 +106,6 @@ func registerOutline(parent *cobra.Command, globals *shared.GlobalFlags) {
 	cmd.Flags().StringArrayVar(&nodes, "node", nil, "Node id(s) to outline (1:2 or 1-2; repeatable, comma-separated)")
 	cmd.Flags().IntVar(&depth, "depth", outlineDocumentDepth-1, "Levels below each page or node")
 	cmd.Flags().IntVar(&maxNodes, "max-nodes", 400, "Most records to print; the rest are listed in @pagination.next_cursor")
+	cmd.Flags().BoolVar(&expand, "expand-instances", false, "Show the insides of component instances")
 	parent.AddCommand(cmd)
 }

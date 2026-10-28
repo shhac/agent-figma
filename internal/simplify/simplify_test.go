@@ -136,3 +136,62 @@ func TestStructureViewPreviewsText(t *testing.T) {
 		t.Fatal("preview cuts")
 	}
 }
+
+const instanceDoc = `{"id":"0:0","type":"DOCUMENT","name":"Document","children":[
+ {"id":"1:1","type":"CANVAS","name":"Page","children":[
+  {"id":"3:1","type":"FRAME","name":"Screen","children":[
+   {"id":"3:2","type":"INSTANCE","name":"Button","componentId":"4:1",
+    "componentProperties":{"State":{"type":"VARIANT","value":"Default"},"Label#1:2":{"type":"TEXT","value":"Pay"}},
+    "children":[{"id":"I3:2;5:1","type":"FRAME","name":"Inner","children":[{"id":"I3:2;5:2","type":"TEXT","name":"Label","characters":"Pay now"}]}]},
+   {"id":"3:3","type":"INSTANCE","name":"Button","componentId":"4:2",
+    "componentProperties":{"State":{"type":"VARIANT","value":"Hover"}},
+    "children":[{"id":"I3:3;5:2","type":"TEXT","name":"Label","characters":"Cancel"}]},
+   {"id":"3:4","type":"INSTANCE","name":"Button","componentId":"4:1",
+    "componentProperties":{"State":{"type":"VARIANT","value":"Default"}},"children":[]}]}]}]}`
+
+func instanceStore(t *testing.T) *cache.NodeStore {
+	t.Helper()
+	s := cache.NewNodeStore("v1")
+	err := s.MergeFile(&figma.FileResponse{
+		Document:      json.RawMessage(instanceDoc),
+		Components:    map[string]figma.Component{"4:1": {Name: "State=Default", ComponentSetID: "4:0", Remote: true}, "4:2": {Name: "State=Hover", ComponentSetID: "4:0", Remote: true}},
+		ComponentSets: map[string]figma.ComponentSet{"4:0": {Name: "Button", Remote: true}},
+	}, nil, cache.Full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestInstancesFoldIntoLeaves(t *testing.T) {
+	res := Simplify(instanceStore(t), []string{"3:1"}, Options{View: ViewAll, MaxDepth: cache.Full})
+	recs := byID(res.Records)
+	if _, ok := recs["I3:2;5:2"]; ok {
+		t.Fatal("instance insides should be folded")
+	}
+	btn := recs["3:2"]
+	if !btn.Instance || len(btn.Texts) != 1 || btn.Texts[0] != "Pay now" || btn.Component.Set != "Button" {
+		t.Fatalf("folded instance: %+v", btn)
+	}
+	if len(res.Next) != 0 {
+		t.Fatalf("folding is not a cut: %v", res.Next)
+	}
+	if len(res.Components) != 1 || res.Components[0].Count != 3 || !res.Components[0].Remote {
+		t.Fatalf("components: %+v", res.Components)
+	}
+	v := res.Components[0].Variants
+	if len(v) != 2 || v[0].Count != 2 || v[0].Props["State"] != "Default" || len(v[0].Nodes) != 2 {
+		t.Fatalf("variants: %+v", v)
+	}
+}
+
+func TestExpandInstancesAndRequestedInstanceRoots(t *testing.T) {
+	res := Simplify(instanceStore(t), []string{"3:1"}, Options{View: ViewAll, MaxDepth: cache.Full, ExpandInstances: true})
+	if _, ok := byID(res.Records)["I3:2;5:2"]; !ok {
+		t.Fatal("--expand-instances should emit insides")
+	}
+	res = Simplify(instanceStore(t), []string{"3:2"}, Options{View: ViewAll, MaxDepth: cache.Full})
+	if _, ok := byID(res.Records)["I3:2;5:2"]; !ok {
+		t.Fatal("a requested instance root is expanded")
+	}
+}

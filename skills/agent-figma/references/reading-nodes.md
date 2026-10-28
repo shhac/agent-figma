@@ -74,6 +74,20 @@ hex when describing the design.
 | `layout` | structure + `layout`, `pos` |
 | `text` | structure + `text`, `text_style`, and `fills` on TEXT nodes |
 | `visuals` | structure + `fills`, `strokes`, `effects`, `radius`, `opacity` |
+| `components` | only the `@components` summary, one record per component set or standalone component |
+
+### Component instances
+
+An `INSTANCE` is one leaf by default: `component {id, name, set}`, `props`,
+`texts` (the visible text inside, ≤8), and `instance: true`. Building UI needs
+the call site (which component, which variant, which label), not the twenty
+nodes Figma draws it with. `--expand-instances` shows the insides; a requested
+node that is itself an instance is always expanded.
+
+`@components` lists every component set (or standalone component) used in the
+output, most used first, with each variant's `props`, `count`, and up to 10
+node ids. Map these onto your codebase's components; `--view components`
+gives just this list, which for a whole page is usually a few KB.
 
 `component`, `props`, and `export` appear only in `all`.
 

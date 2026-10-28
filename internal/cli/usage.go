@@ -42,7 +42,9 @@ START HERE (cheapest first)
   agent-figma file outline <ref> [--node id] [--depth 2] [--max-nodes 400]   structure only
 
 NODES
-  agent-figma nodes get <ref> [--node id...] [--depth N] [--view all|structure|layout|text|visuals] [--raw] [--max-nodes 400]
+  agent-figma nodes get <ref> [--node id...] [--depth N] [--view all|structure|layout|text|visuals|components] [--raw] [--max-nodes 400] [--expand-instances]
+      Component instances are leaves by default (component, props, texts); @components summarises which
+      design-system components and variants are used, and --view components prints only that summary.
   agent-figma nodes find <ref> [--name 'button*'] [--type COMPONENT] [--page Screens] [--limit 100]   cache only
 
 IMAGES AND ASSETS
@@ -69,6 +71,7 @@ CACHE
 OUTPUT
   NDJSON on stdout (--format json|yaml for one envelope). Metadata lines:
     @file {key, name, version, stale?, latest_version?}   @styles {id: {name?, value}}   @budget {calls, cache_hits, prefetched}
+    @components [{set|component, count, remote?, variants: [{props, count, nodes}]}]
     @related {rel, id, name, cost}   cost: cached (free) | download (CDN only, no API budget) | tier1
     @unresolved {id, reason, fixable_by, hint}   @pagination {has_more, next_cursor}
   For nodes, next_cursor lists the node ids still to print: pass it back as --node to continue

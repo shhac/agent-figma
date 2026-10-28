@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"path"
@@ -301,7 +302,7 @@ func findNodes(store *cache.NodeStore, q findQuery, limit int) findResult {
 		if res.matches > limit {
 			continue
 		}
-		rec := pruned(map[string]any{"id": id, "type": n.Type, "name": n.Name, "label": cmpOr(label, labels.For(id)), "page": pageName, "parent": stored.Parent})
+		rec := pruned(map[string]any{"id": id, "type": n.Type, "name": n.Name, "label": cmp.Or(label, labels.For(id)), "page": pageName, "parent": stored.Parent})
 		if b := n.AbsoluteBoundingBox; b != nil {
 			rec["size"] = []float64{b.Width, b.Height}
 		}

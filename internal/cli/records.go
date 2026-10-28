@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"cmp"
 	"maps"
 	"slices"
 )
@@ -43,5 +42,3 @@ func pruned(rec map[string]any) map[string]any {
 }
 
 func sortedKeys[V any](m map[string]V) []string { return slices.Sorted(maps.Keys(m)) }
-
-func cmpOr(values ...string) string { return cmp.Or(values...) }

@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"maps"
@@ -120,7 +121,7 @@ func registerAdd(parent *cobra.Command, globals *shared.GlobalFlags) {
 					WithHint("The token was not saved. Fix keychain access and retry with --form.")
 			}
 			profile := config.Profile{
-				Kind:      orDefault(f.kind, config.KindPAT),
+				Kind:      cmp.Or(f.kind, config.KindPAT),
 				Expires:   f.expires,
 				Seat:      f.seat,
 				Plan:      f.plan,
@@ -339,9 +340,9 @@ func profileRecord(cfg *config.Config, alias string, extra map[string]any) map[s
 	record := map[string]any{
 		"profile":       alias,
 		"default":       cfg.DefaultProfile == alias,
-		"kind":          orDefault(p.Kind, config.KindPAT),
-		"declared_seat": orDefault(p.Seat, "unknown"),
-		"declared_plan": orDefault(p.Plan, "unknown"),
+		"kind":          cmp.Or(p.Kind, config.KindPAT),
+		"declared_seat": cmp.Or(p.Seat, "unknown"),
+		"declared_plan": cmp.Or(p.Plan, "unknown"),
 	}
 	if p.Expires != "" {
 		record["expires"] = p.Expires
@@ -350,13 +351,6 @@ func profileRecord(cfg *config.Config, alias string, extra map[string]any) map[s
 	}
 	maps.Copy(record, extra)
 	return record
-}
-
-func orDefault(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }
 
 // promptSecretDialog opens a masked native prompt seeded with initial, so a

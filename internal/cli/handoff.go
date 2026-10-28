@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"os"
@@ -90,7 +91,7 @@ func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, s
 	node, _ := store.Node(id)
 	dir := out
 	if dir == "" {
-		dir = filepath.Join(session.File.VersionDir(store.Version), "handoff", cache.Slug(cmpOr(simplify.NewLabeler(store).For(id), node.Name))+"--"+cache.NodeIDSegment(id))
+		dir = filepath.Join(session.File.VersionDir(store.Version), "handoff", cache.Slug(cmp.Or(simplify.NewLabeler(store).For(id), node.Name))+"--"+cache.NodeIDSegment(id))
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, agenterrors.Wrap(err, agenterrors.FixableByHuman).WithHint("Check that the handoff folder is writable")
@@ -166,14 +167,14 @@ func handoffIcons(ctx context.Context, session *fetch.Session, records []simplif
 		}
 		key, name := rec.ID, rec.Name
 		if rec.Component != nil {
-			key, name = rec.Component.ID, cmpOr(rec.Component.Name, rec.Name)
+			key, name = rec.Component.ID, cmp.Or(rec.Component.Name, rec.Name)
 		}
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		ids = append(ids, rec.ID)
-		names[rec.ID] = cmpOr(name, "icon")
+		names[rec.ID] = cmp.Or(name, "icon")
 	}
 	if len(ids) == 0 {
 		return nil, nil

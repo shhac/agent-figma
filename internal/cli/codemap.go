@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"strings"
@@ -48,7 +49,7 @@ func (m mapping) annotate(result *simplify.Result, store *cache.NodeStore) {
 func (m mapping) annotateUses(uses []simplify.ComponentUse) {
 	for i := range uses {
 		u := &uses[i]
-		entry := m.file.Lookup(u.SetKey, u.Key, cmpOr(u.Set, u.Component))
+		entry := m.file.Lookup(u.SetKey, u.Key, cmp.Or(u.Set, u.Component))
 		mapped := entry != nil
 		u.Mapped = &mapped
 		if !mapped {
@@ -69,7 +70,7 @@ func (m mapping) annotateRecords(records []simplify.Record, store *cache.NodeSto
 			continue
 		}
 		c := store.Components[rec.Component.ID]
-		if entry := m.file.Lookup(store.ComponentSets[c.ComponentSetID].Key, c.Key, cmpOr(rec.Component.Set, rec.Component.Name)); entry != nil {
+		if entry := m.file.Lookup(store.ComponentSets[c.ComponentSetID].Key, c.Key, cmp.Or(rec.Component.Set, rec.Component.Name)); entry != nil {
 			code := codeRef(entry)
 			if props := entry.CodeProps(rec.Props); len(props) > 0 {
 				code["props"] = props
@@ -199,7 +200,7 @@ exists, @components and instance records carry the mapped code component and pro
 				}
 				written := 0
 				for _, u := range uses {
-					name := cmpOr(u.Set, u.Component)
+					name := cmp.Or(u.Set, u.Component)
 					if m.file.Lookup(u.SetKey, u.Key, name) != nil {
 						continue
 					}

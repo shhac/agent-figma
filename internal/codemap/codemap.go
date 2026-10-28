@@ -6,6 +6,7 @@
 package codemap
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -60,7 +61,7 @@ type PropMap struct {
 // none exists, it proposes one at the repository root (the nearest .git
 // above start), or start itself; exists says which.
 func Locate(explicit, start string) (path string, exists bool) {
-	if p := firstNonEmpty(explicit, os.Getenv(EnvPath)); p != "" {
+	if p := cmp.Or(explicit, os.Getenv(EnvPath)); p != "" {
 		return p, fileExists(p)
 	}
 	var repo string
@@ -76,7 +77,7 @@ func Locate(explicit, start string) (path string, exists bool) {
 			break
 		}
 	}
-	return filepath.Join(firstNonEmpty(repo, start), Dir, FileName), false
+	return filepath.Join(cmp.Or(repo, start), Dir, FileName), false
 }
 
 // Root is the directory the mapping file describes (the one holding .agent-figma).
@@ -181,13 +182,4 @@ func Normalize(name string) string { return notWord.ReplaceAllString(strings.ToL
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

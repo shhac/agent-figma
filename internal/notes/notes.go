@@ -6,6 +6,7 @@
 package notes
 
 import (
+	"cmp"
 	"math"
 	"regexp"
 	"slices"
@@ -188,7 +189,7 @@ func Annotations(store *cache.NodeStore, id string) []Note {
 	var out []Note
 	store.WalkVisible([]string{id}, func(nid string, n figma.Node) {
 		for _, a := range n.Annotations {
-			if text := strings.TrimSpace(firstNonEmpty(a.LabelMarkdown, a.Label)); text != "" {
+			if text := strings.TrimSpace(cmp.Or(a.LabelMarkdown, a.Label)); text != "" {
 				out = append(out, Note{Source: SourceAnnotation, Text: text, NodeID: nid, Name: n.Name})
 			}
 		}
@@ -238,13 +239,4 @@ func Comments(store *cache.NodeStore, id string, all []Comment) []Note {
 
 func commentNote(c Comment) Note {
 	return Note{Source: SourceComment, Text: strings.TrimSpace(c.Message), Author: c.User.Handle, CreatedAt: c.CreatedAt, Resolved: c.ResolvedAt != ""}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

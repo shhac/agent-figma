@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/url"
@@ -138,11 +139,11 @@ func variableRecord(v variable, collections map[string]variableCollection) map[s
 	}
 	values := map[string]any{}
 	for mode, raw := range v.ValuesByMode {
-		values[cmpOr(modeName[mode], mode)] = variableValue(raw)
+		values[cmp.Or(modeName[mode], mode)] = variableValue(raw)
 	}
 	return pruned(map[string]any{
 		"kind": "variable", "id": v.ID, "name": v.Name, "key": v.Key,
-		"collection_id": v.VariableCollectionID, "collection": c.Name, "type": strings.ToLower(cmpOr(v.ResolvedType, v.ResolvedDataType)),
+		"collection_id": v.VariableCollectionID, "collection": c.Name, "type": strings.ToLower(cmp.Or(v.ResolvedType, v.ResolvedDataType)),
 		"description": v.Description, "scopes": v.Scopes, "remote": v.Remote, "code_syntax": v.CodeSyntax, "values": values,
 	})
 }

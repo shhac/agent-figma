@@ -117,3 +117,73 @@ func propsKey(props map[string]any) string {
 	}
 	return b.String()
 }
+
+func (w *walker) componentInfo(rec *Record, n figma.Node, stored *cache.StoredNode) {
+	switch n.Type {
+	case "INSTANCE":
+		if n.ComponentID != "" {
+			ref := &ComponentRef{ID: n.ComponentID}
+			if c, ok := w.store.Components[n.ComponentID]; ok {
+				ref.Name = c.Name
+				if set, ok := w.store.ComponentSets[c.ComponentSetID]; ok {
+					ref.Set = set.Name
+				}
+			}
+			rec.Component = ref
+		}
+		rec.Props = instanceProps(n.ComponentProperties)
+	case "COMPONENT":
+		if parent, ok := w.node(stored.Parent); ok && parent.Type == "COMPONENT_SET" {
+			rec.Props = VariantProps(n.Name)
+		}
+	case "COMPONENT_SET":
+		rec.Variants = variantOptions(n.ComponentPropertyDefinitions)
+	}
+}
+
+// propName drops the "#12:3" suffix Figma appends to non-variant property names.
+func propName(name string) string {
+	if i := strings.LastIndex(name, "#"); i > 0 {
+		return name[:i]
+	}
+	return name
+}
+
+func instanceProps(props map[string]figma.ComponentProperty) map[string]any {
+	if len(props) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(props))
+	for name, p := range props {
+		out[propName(name)] = p.Value
+	}
+	return out
+}
+
+// VariantProps parses a variant component's name ("State=Hover, Size=md").
+func VariantProps(name string) map[string]any {
+	out := map[string]any{}
+	for _, part := range strings.Split(name, ",") {
+		k, v, ok := strings.Cut(part, "=")
+		if ok {
+			out[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func variantOptions(defs map[string]figma.ComponentPropertyDef) map[string][]string {
+	out := map[string][]string{}
+	for name, d := range defs {
+		if d.Type == "VARIANT" && len(d.VariantOptions) > 0 {
+			out[propName(name)] = d.VariantOptions
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

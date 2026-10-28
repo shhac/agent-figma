@@ -3,29 +3,22 @@ package auth
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"maps"
 	"slices"
 	"time"
 
 	"github.com/shhac/lib-agent-cli/creds"
-	clidialog "github.com/shhac/lib-agent-cli/dialog"
 	agenterrors "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/cli/shared"
 	"github.com/shhac/agent-figma/internal/config"
 	"github.com/shhac/agent-figma/internal/credential"
-	"github.com/shhac/agent-figma/internal/figma"
-	"github.com/shhac/agent-figma/internal/figmaurl"
 	"github.com/shhac/agent-figma/internal/output"
 	"github.com/shhac/agent-figma/internal/ratelimit"
 )
-
-const formHint = "Agents should use 'agent-figma auth add <profile> --form' so the token never appears in chat or argv."
 
 func Register(root *cobra.Command, globals *shared.GlobalFlags) {
 	auth := &cobra.Command{
@@ -39,59 +32,6 @@ func Register(root *cobra.Command, globals *shared.GlobalFlags) {
 	registerDefault(auth, globals)
 	registerRemove(auth, globals)
 	root.AddCommand(auth)
-}
-
-type profileFlags struct {
-	token, kind, expires, seat, plan string
-	form, makeDefault, clearExpires  bool
-}
-
-func (f *profileFlags) bind(cmd *cobra.Command, forUpdate bool) {
-	cmd.Flags().StringVar(&f.token, "token", "", "Figma token (prefer --form, or pipe it on stdin)")
-	cmd.Flags().BoolVar(&f.form, "form", false, "Prompt for the token via a native OS dialog")
-	cmd.Flags().StringVar(&f.kind, "kind", "", "Token kind: pat (personal access token) or plan (plan access token)")
-	cmd.Flags().StringVar(&f.expires, "expires", "", "Token expiry date as YYYY-MM-DD (Figma tokens last at most 90 days)")
-	cmd.Flags().StringVar(&f.seat, "seat", "", "Your Figma seat: full, dev, collab, view, or unknown")
-	cmd.Flags().StringVar(&f.plan, "plan", "", "The plan you mostly read files from: starter, pro, org, enterprise, student, or unknown")
-	cmd.Flags().BoolVar(&f.makeDefault, "default", false, "Make this the default profile")
-	if forUpdate {
-		cmd.Flags().BoolVar(&f.clearExpires, "clear-expires", false, "Forget the recorded expiry date")
-	}
-}
-
-func (f *profileFlags) validate(cmd *cobra.Command) error {
-	if f.kind != "" && !slices.Contains(config.Kinds, f.kind) {
-		return agenterrors.New("--kind takes pat or plan", agenterrors.FixableByAgent)
-	}
-	if f.seat != "" && !slices.Contains(config.Seats, f.seat) {
-		return agenterrors.New("--seat takes full, dev, collab, view, or unknown", agenterrors.FixableByAgent)
-	}
-	if f.plan != "" && !slices.Contains(config.Plans, f.plan) {
-		return agenterrors.New("--plan takes starter, pro, org, enterprise, student, or unknown", agenterrors.FixableByAgent)
-	}
-	if f.expires != "" {
-		if _, err := time.Parse("2006-01-02", f.expires); err != nil {
-			return agenterrors.New("--expires takes a date as YYYY-MM-DD", agenterrors.FixableByAgent)
-		}
-	}
-	return nil
-}
-
-// readToken takes the token from --form, --token, or piped stdin.
-func (f *profileFlags) readToken(cmd *cobra.Command, alias string) (string, error) {
-	if f.form {
-		filled, err := promptSecretDialog(cmd.Context(), "agent-figma: "+alias, "Figma personal access token", f.token)
-		if err != nil {
-			fixableBy, hint := classifyDialogError(err)
-			return "", agenterrors.Wrap(err, fixableBy).WithHint(hint)
-		}
-		return filled, nil
-	}
-	token, err := creds.ReadSecret(cmd.InOrStdin(), f.token)
-	if err != nil {
-		return "", agenterrors.Wrap(err, agenterrors.FixableByAgent)
-	}
-	return token, nil
 }
 
 func registerAdd(parent *cobra.Command, globals *shared.GlobalFlags) {
@@ -199,77 +139,6 @@ func registerUpdate(parent *cobra.Command, globals *shared.GlobalFlags) {
 	parent.AddCommand(cmd)
 }
 
-func registerCheck(parent *cobra.Command, globals *shared.GlobalFlags) {
-	var fileRef string
-	cmd := &cobra.Command{
-		Use:   "check [profile]",
-		Short: "Verify a token against Figma and show what is known about its budget",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			flags := *globals
-			if len(args) > 0 {
-				flags.Profile = args[0]
-			}
-			return shared.WithClient(cmd.Context(), &flags, func(ctx context.Context, r *shared.Resolved) error {
-				planToken := r.Settings.Kind == config.KindPlan
-				if planToken && fileRef == "" {
-					return agenterrors.New("plan access tokens cannot call /v1/me", agenterrors.FixableByAgent).
-						WithHint("Verify with a file the token can read: 'agent-figma auth check <profile> --file <url-or-key>'.")
-				}
-				obs := r.Client.Limiter.Observe()
-				record := map[string]any{"status": "ok", "token_source": r.TokenSource, "budget": obs}
-				if r.Profile != "" {
-					record = profileRecord(config.Read(), r.Profile, record)
-					if s := shared.Suggestions(r.Profile, r.Settings, obs); len(s) > 0 {
-						record["suggestions"] = s
-					}
-				}
-				if fileRef != "" {
-					file, err := checkFile(ctx, r, fileRef)
-					if err != nil {
-						return err
-					}
-					record["file"] = file
-				}
-				if !planToken {
-					user, err := checkMe(ctx, r)
-					if err != nil {
-						return err
-					}
-					record["user"] = user
-				}
-				return output.WriteItem(record, flags.Format)
-			})
-		},
-	}
-	cmd.Flags().StringVar(&fileRef, "file", "", "Verify by reading this file's metadata (required for plan access tokens)")
-	parent.AddCommand(cmd)
-}
-
-func checkFile(ctx context.Context, r *shared.Resolved, fileRef string) (map[string]any, error) {
-	ref, err := figmaurl.Parse(fileRef)
-	if err != nil {
-		return nil, agenterrors.Wrap(err, agenterrors.FixableByAgent)
-	}
-	raw, err := r.Client.Get(ctx, "/v1/files/"+ref.Key()+"/meta", nil)
-	if err != nil {
-		return nil, err
-	}
-	meta, err := api.Decode[figma.MetaResponse](raw, "file meta")
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"key": ref.Key(), "name": meta.File.Name, "role": meta.File.Role}, nil
-}
-
-func checkMe(ctx context.Context, r *shared.Resolved) (figma.User, error) {
-	raw, err := r.Client.Get(ctx, "/v1/me", nil)
-	if err != nil {
-		return figma.User{}, err
-	}
-	return api.Decode[figma.User](raw, "user")
-}
-
 func registerList(parent *cobra.Command, globals *shared.GlobalFlags) {
 	parent.AddCommand(&cobra.Command{
 		Use:   "list",
@@ -351,36 +220,4 @@ func profileRecord(cfg *config.Config, alias string, extra map[string]any) map[s
 	}
 	maps.Copy(record, extra)
 	return record
-}
-
-// promptSecretDialog opens a masked native prompt seeded with initial, so a
-// token never transits argv.
-func promptSecretDialog(ctx context.Context, title, label, initial string) (string, error) {
-	res, err := clidialog.Prompt(ctx, clidialog.Spec{
-		Title: title,
-		Items: []clidialog.Field{{ID: "secret", Label: label, InputType: clidialog.Password, Initial: initial}},
-	})
-	if err != nil {
-		return "", err
-	}
-	for _, r := range res {
-		if r.ID == "secret" {
-			return r.Value, nil
-		}
-	}
-	return "", nil
-}
-
-// classifyDialogError maps a dialog failure onto fixable_by, so a cancelled
-// prompt reads as retry and a headless host as human.
-func classifyDialogError(err error) (agenterrors.FixableBy, string) {
-	category, hint := clidialog.ClassifyError(err)
-	switch category {
-	case clidialog.CategoryHuman:
-		return agenterrors.FixableByHuman, hint
-	case clidialog.CategoryRetry:
-		return agenterrors.FixableByRetry, hint
-	default:
-		return agenterrors.FixableByAgent, hint
-	}
 }

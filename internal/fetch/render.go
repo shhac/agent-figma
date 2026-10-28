@@ -254,51 +254,6 @@ func keepDownloaded(images []Image) ([]Image, []string) {
 	return kept, failed
 }
 
-// renderRelated picks sibling variants (and the variants of a requested
-// component set) to render at the same format and scale, skipping any whose
-// size would exceed Figma's render cap.
-func (s *Session) renderRelated(known *cache.NodeStore, req RenderRequest) []string {
-	seen := map[string]bool{}
-	for _, id := range req.IDs {
-		seen[id] = true
-	}
-	var out []string
-	consider := func(id string) {
-		if seen[id] || len(out) >= maxRenderExtras {
-			return
-		}
-		seen[id] = true
-		n, ok := known.Node(id)
-		if !ok || !n.IsVisible() {
-			return
-		}
-		if b := n.AbsoluteBoundingBox; b != nil && b.Width*b.Height*req.scale()*req.scale() > maxRenderPixels {
-			return
-		}
-		out = append(out, id)
-	}
-	for _, id := range req.IDs {
-		n, ok := known.Node(id)
-		if !ok {
-			continue
-		}
-		stored := known.Nodes[id]
-		if n.Type == "COMPONENT_SET" && stored.KnownDepth != 0 {
-			for _, c := range stored.Children {
-				consider(c)
-			}
-		}
-		if parent, ok := known.Node(stored.Parent); ok && parent.Type == "COMPONENT_SET" {
-			if ps := known.Nodes[parent.ID]; ps != nil {
-				for _, c := range ps.Children {
-					consider(c)
-				}
-			}
-		}
-	}
-	return out
-}
-
 func (s *Session) requestRenders(ctx context.Context, req RenderRequest, need, extras []string) (map[string]*string, error) {
 	call := func(ids []string) (map[string]*string, error) {
 		q := query("ids", joinIDs(ids), "format", req.Format, "scale", strconv.FormatFloat(req.scale(), 'f', -1, 64), "version", req.Version)

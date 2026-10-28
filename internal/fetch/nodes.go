@@ -46,13 +46,22 @@ func (s *Session) Nodes(ctx context.Context, ids []string, depth int) (*NodesRes
 	if store != nil {
 		return &NodesResult{Store: store, Missing: missingOf(store, ids)}, nil
 	}
-	known := s.knownStore(version)
+	// What to fetch is judged against this version only; an older version's
+	// cache is a guide to what is related, not to what is current.
+	current, err := s.File.LoadNodes(cacheVersion(version))
+	if err != nil {
+		current = cache.NewNodeStore(version)
+	}
 	var need []string
 	for _, id := range ids {
-		if !known.Has(id, depth) {
+		if !current.Has(id, depth) && !current.IsMissing(id) {
 			need = append(need, id)
 		}
 	}
+	if len(need) == 0 {
+		return &NodesResult{Store: current, Missing: missingOf(current, ids)}, nil
+	}
+	known := s.knownStore(version)
 	extras := []string{}
 	if s.prefetching() {
 		extras = relatedIDs(known, need, s.cachedVariantSets(version), maxNodeExtras)

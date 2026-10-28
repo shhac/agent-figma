@@ -477,3 +477,29 @@ func TestCacheClearTargetsTheSelectedPartition(t *testing.T) {
 		t.Fatalf("the env partition must survive clearing the profile's: %v", rows)
 	}
 }
+
+func TestRefetchAfterEditAsksOnlyForTheNode(t *testing.T) {
+	srv := mockEnv(t)
+	mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCard)
+	srv.BumpVersion(fileKey)
+	mustRun(t, "--refresh", "nodes", "get", fileKey, "--node", mockfigma.NodeCard)
+	reqs := srv.Stats().Requests
+	last := reqs[len(reqs)-1]
+	if last.Path != "/v1/files/"+fileKey || !strings.Contains(last.Query, "ids=") {
+		t.Fatalf("refetch after an edit must name the node, got %s?%s", last.Path, last.Query)
+	}
+}
+
+func TestSubtreeCompleteOnceChildrenAre(t *testing.T) {
+	srv := mockEnv(t)
+	// The outline lists 2:30's children completely, one level deep...
+	mustRun(t, "file", "outline", fileKey, "--node", mockfigma.NodeCheckout, "--depth", "2")
+	// ...and its only child's subtree is then cached in full,
+	mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCardBody)
+	// so 2:30 is complete too.
+	before := srv.Stats().Tier1
+	mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCard)
+	if srv.Stats().Tier1 != before {
+		t.Fatal("a node whose children are all cached should not be refetched")
+	}
+}

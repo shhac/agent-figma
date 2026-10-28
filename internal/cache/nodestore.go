@@ -46,15 +46,30 @@ func NewNodeStore(version string) *NodeStore {
 
 // Has reports whether id's subtree is stored to at least depth levels below
 // it (Full for the whole subtree).
+//
+// A node known only to a limited depth still counts as complete when its
+// children list is known and each child's subtree is complete to the depth
+// left, as after fetching each child of an outlined frame.
 func (s *NodeStore) Has(id string, depth int) bool {
 	n := s.Nodes[id]
-	if n == nil {
+	switch {
+	case n == nil:
+		return false
+	case n.KnownDepth == Full, depth != Full && n.KnownDepth >= depth:
+		return true
+	case n.KnownDepth == 0:
 		return false
 	}
-	if n.KnownDepth == Full {
-		return true
+	next := depth
+	if next != Full {
+		next--
 	}
-	return depth != Full && n.KnownDepth >= depth
+	for _, c := range n.Children {
+		if !s.Has(c, next) {
+			return false
+		}
+	}
+	return true
 }
 
 // IsMissing reports an id Figma said this version does not have.

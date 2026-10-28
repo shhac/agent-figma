@@ -116,10 +116,8 @@ func (f File) UpdateNodes(version string, merge func(*NodeStore) error) (*NodeSt
 	var result *NodeStore
 	err := creds.Store{Path: path}.WithLock(func() error {
 		s, err := readGzipJSON(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			s, err = NewNodeStore(version), nil
-		}
 		if err != nil {
+			// Missing or unreadable: start fresh rather than refuse to cache.
 			s = NewNodeStore(version)
 		}
 		if err := merge(s); err != nil {

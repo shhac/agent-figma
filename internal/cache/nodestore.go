@@ -117,45 +117,7 @@ func (s *NodeStore) MergeFile(resp *figma.FileResponse, requested []string, dept
 	for _, id := range requested {
 		want[id] = true
 	}
-	known := func(level int, insideRequested bool) int {
-		switch {
-		case len(requested) > 0 && insideRequested:
-			return Full
-		case len(requested) > 0:
-			// Ancestors and pages come with partial children lists.
-			return 0
-		case depth == Full:
-			return Full
-		default:
-			return max(depth-level, 0)
-		}
-	}
-	var walk func(raw json.RawMessage, parent, page string, level int, inside bool) (string, error)
-	walk = func(raw json.RawMessage, parent, page string, level int, inside bool) (string, error) {
-		var rn rawNode
-		if err := json.Unmarshal(raw, &rn); err != nil {
-			return "", err
-		}
-		inside = inside || want[rn.ID]
-		if rn.Type == "CANVAS" {
-			page = rn.ID
-		}
-		childIDs := make([]string, 0, len(rn.Children))
-		for _, child := range rn.Children {
-			id, err := walk(child, rn.ID, page, level+1, inside)
-			if err != nil {
-				return "", err
-			}
-			childIDs = append(childIDs, id)
-		}
-		props, err := stripChildren(raw)
-		if err != nil {
-			return "", err
-		}
-		s.put(rn.ID, &StoredNode{Parent: parent, Page: page, KnownDepth: known(level, inside), Children: childIDs, Props: props})
-		return rn.ID, nil
-	}
-	root, err := walk(resp.Document, "", "", 0, false)
+	root, err := s.mergeTree(resp.Document, treeWalk{want: want, depth: depth})
 	if err != nil {
 		return fmt.Errorf("decode file document: %w", err)
 	}
@@ -175,40 +137,64 @@ func (s *NodeStore) MergeNodes(resp *figma.NodesResponse, depth int) ([]string, 
 			continue
 		}
 		s.mergeMaps(entry.Components, entry.ComponentSets, entry.Styles)
-		var walk func(raw json.RawMessage, parent, page string, level int) (string, error)
-		walk = func(raw json.RawMessage, parent, page string, level int) (string, error) {
-			var rn rawNode
-			if err := json.Unmarshal(raw, &rn); err != nil {
-				return "", err
-			}
-			if rn.Type == "CANVAS" {
-				page = rn.ID
-			}
-			childIDs := make([]string, 0, len(rn.Children))
-			for _, child := range rn.Children {
-				cid, err := walk(child, rn.ID, page, level+1)
-				if err != nil {
-					return "", err
-				}
-				childIDs = append(childIDs, cid)
-			}
-			props, err := stripChildren(raw)
-			if err != nil {
-				return "", err
-			}
-			kd := Full
-			if depth != Full {
-				kd = max(depth-level, 0)
-			}
-			s.put(rn.ID, &StoredNode{Parent: parent, Page: page, KnownDepth: kd, Children: childIDs, Props: props})
-			return rn.ID, nil
-		}
-		if _, err := walk(entry.Document, "", "", 0); err != nil {
+		if _, err := s.mergeTree(entry.Document, treeWalk{depth: depth}); err != nil {
 			return nil, fmt.Errorf("decode node %s: %w", id, err)
 		}
 	}
 	s.fillPages()
 	return missing, nil
+}
+
+// treeWalk says how deep a response's subtrees are known. With want set
+// (GET /files?ids), only the requested subtrees are complete: ancestors and
+// pages arrive with partial children lists. Otherwise depth, counted from the
+// walk's root, bounds what is known.
+type treeWalk struct {
+	want  map[string]bool
+	depth int
+}
+
+func (w treeWalk) knownDepth(level int, insideRequested bool) int {
+	switch {
+	case len(w.want) > 0 && insideRequested:
+		return Full
+	case len(w.want) > 0:
+		return 0
+	case w.depth == Full:
+		return Full
+	default:
+		return max(w.depth-level, 0)
+	}
+}
+
+// mergeTree stores raw and its descendants, returning raw's id.
+func (s *NodeStore) mergeTree(raw json.RawMessage, w treeWalk) (string, error) {
+	var walk func(raw json.RawMessage, parent, page string, level int, inside bool) (string, error)
+	walk = func(raw json.RawMessage, parent, page string, level int, inside bool) (string, error) {
+		var rn rawNode
+		if err := json.Unmarshal(raw, &rn); err != nil {
+			return "", err
+		}
+		inside = inside || w.want[rn.ID]
+		if rn.Type == "CANVAS" {
+			page = rn.ID
+		}
+		childIDs := make([]string, 0, len(rn.Children))
+		for _, child := range rn.Children {
+			id, err := walk(child, rn.ID, page, level+1, inside)
+			if err != nil {
+				return "", err
+			}
+			childIDs = append(childIDs, id)
+		}
+		props, err := stripChildren(raw)
+		if err != nil {
+			return "", err
+		}
+		s.put(rn.ID, &StoredNode{Parent: parent, Page: page, KnownDepth: w.knownDepth(level, inside), Children: childIDs, Props: props})
+		return rn.ID, nil
+	}
+	return walk(raw, "", "", 0, false)
 }
 
 // put merges one node: the deeper knowledge of its children wins, and known

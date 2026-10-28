@@ -851,3 +851,50 @@ func TestMappingWritesRefusedUnderMCPAndBrokenMappingTolerated(t *testing.T) {
 		t.Fatalf("file outline should apply the mapping: %s", r.stdout)
 	}
 }
+
+func TestDiffDefaultRootsPaginationAndOneSidedRender(t *testing.T) {
+	srv := mockEnv(t)
+	mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	if _, err := srv.Edit(fileKey,
+		mockfigma.Edit{Op: mockfigma.EditSet, Node: mockfigma.NodeTotalText, Field: "characters", Value: "Total: $50.00"},
+		mockfigma.Edit{Op: mockfigma.EditSet, Node: mockfigma.NodePriceText, Field: "characters", Value: "$50.00"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	// No --node: the frames cached in full at the baseline are compared.
+	r := mustRun(t, "diff", fileKey)
+	sum, _ := r.meta(t, "@diff").(map[string]any)
+	if sum["changed"].(float64) != 2 {
+		t.Fatalf("default roots should cover the cached Checkout frame: %v", sum)
+	}
+	r = mustRun(t, "diff", fileKey, "--node", mockfigma.NodeCheckout, "--max-changes", "1")
+	if p := r.metaAll(t, "@pagination"); len(p) != 1 || p[0]["has_more"] != true {
+		t.Fatalf("--max-changes should paginate: %s", r.stdout)
+	}
+
+	// A frame added in the new version renders only "after".
+	if _, err := srv.Edit(fileKey, mockfigma.Edit{Op: mockfigma.EditAdd, Parent: mockfigma.NodeCheckout, Index: mockfigma.AppendIndex,
+		NodeJSON: json.RawMessage(`{"id":"9:1","type":"FRAME","name":"Promo","absoluteBoundingBox":{"x":24,"y":900,"width":100,"height":40},"fills":[{"type":"SOLID","color":{"r":1,"g":0,"b":0,"a":1}}]}`)}); err != nil {
+		t.Fatal(err)
+	}
+	r = mustRun(t, "--refresh", "diff", fileKey, "--node", mockfigma.NodeCheckout, "--render")
+	var promo map[string]any
+	for _, p := range r.metaAll(t, "@render") {
+		if p["id"] == "9:1" {
+			promo = p
+		}
+	}
+	if promo == nil || promo["after"] == nil || promo["before"] != nil {
+		t.Fatalf("an added frame renders only after: %s", r.stdout)
+	}
+}
+
+func TestDiffWithOnlyAnOutlineAsksForANode(t *testing.T) {
+	srv := mockEnv(t)
+	mustRun(t, "file", "outline", fileKey, "--depth", "1")
+	srv.BumpVersion(fileKey)
+	r := run(t, "diff", fileKey)
+	if r.code == 0 || !strings.Contains(r.errJSON(t)["hint"].(string), "--node") {
+		t.Fatalf("an outline-only cache should ask for --node: %s", r.stderr)
+	}
+}

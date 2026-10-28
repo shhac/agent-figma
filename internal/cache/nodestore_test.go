@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 
@@ -169,5 +170,36 @@ func TestConcurrentUpdatesMerge(t *testing.T) {
 	s, _ := f.LoadNodes("1")
 	if len(s.Nodes) != 8 {
 		t.Fatalf("concurrent merges lost writes: %d nodes", len(s.Nodes))
+	}
+}
+
+func TestVersionsOrderByValueAndPruneKeepsHead(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	f := OpenFile("work", "FAKEFILEKEY0000000000000")
+	merge := func(v string) {
+		if _, err := f.UpdateNodes(v, func(s *NodeStore) error {
+			return s.MergeFile(&figma.FileResponse{Document: json.RawMessage(doc)}, nil, Full)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	merge("1000000000000000005")
+	if err := f.SetHead(Head{Version: "1000000000000000005"}); err != nil {
+		t.Fatal(err)
+	}
+	// Older versions fetched afterwards (as diff --from does) must not look
+	// newest, and must not push the head out.
+	for _, old := range []string{"1000000000000000004", "1000000000000000003", "1000000000000000002", "999999999999999999"} {
+		merge(old)
+	}
+	got := f.Versions()
+	if got[0] != "1000000000000000005" {
+		t.Fatalf("newest first by value: %v", got)
+	}
+	if len(got) != KeepVersions+1 || !slices.Contains(got, "1000000000000000005") {
+		t.Fatalf("prune keeps the head plus %d others: %v", KeepVersions, got)
+	}
+	if compareVersions("unknown", "1") >= 0 {
+		t.Fatal("non-numeric versions sort oldest")
 	}
 }

@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"cmp"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -8,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -54,45 +55,67 @@ func (f File) SetHead(h Head) error {
 	})
 }
 
-// VersionDir is where one version's data lives.
+// VersionDir is where one version's data lives; content without a version
+// is filed under UnknownVersion.
 func (f File) VersionDir(version string) string {
-	return filepath.Join(f.dir, "v-"+safeSegment(version))
+	return filepath.Join(f.dir, "v-"+safeSegment(cmp.Or(version, UnknownVersion)))
 }
 
-// Versions lists cached versions, newest first by modification time.
+// UnknownVersion files content Figma returned without a version.
+const UnknownVersion = "unknown"
+
+// Versions lists cached versions, newest first. Figma's version ids are
+// increasing numbers, so they order by value; modification time would make
+// an old version fetched for a diff look newest.
 func (f File) Versions() []string {
 	entries, err := os.ReadDir(f.dir)
 	if err != nil {
 		return nil
 	}
-	type v struct {
-		name string
-		mod  time.Time
-	}
-	var vs []v
+	var out []string
 	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), "v-") {
-			continue
+		if e.IsDir() && strings.HasPrefix(e.Name(), "v-") {
+			out = append(out, strings.TrimPrefix(e.Name(), "v-"))
 		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		vs = append(vs, v{strings.TrimPrefix(e.Name(), "v-"), info.ModTime()})
 	}
-	sort.Slice(vs, func(i, j int) bool { return vs[i].mod.After(vs[j].mod) })
-	out := make([]string, len(vs))
-	for i, x := range vs {
-		out[i] = x.name
-	}
+	slices.SortFunc(out, func(a, b string) int { return compareVersions(b, a) })
 	return out
 }
 
-// Prune removes all but the newest KeepVersions version directories.
+// compareVersions orders numeric version ids by value, with anything
+// non-numeric (such as UnknownVersion) oldest.
+func compareVersions(a, b string) int {
+	an, bn := isDigits(a), isDigits(b)
+	switch {
+	case an && bn && len(a) != len(b):
+		return cmp.Compare(len(a), len(b))
+	case an && bn:
+		return strings.Compare(a, b)
+	case an:
+		return 1
+	case bn:
+		return -1
+	}
+	return strings.Compare(a, b)
+}
+
+func isDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
+}
+
+// Prune removes all but the newest KeepVersions version directories, never
+// the head's.
 func (f File) Prune() {
-	versions := f.Versions()
-	for _, old := range versions[min(len(versions), KeepVersions):] {
-		_ = os.RemoveAll(f.VersionDir(old))
+	head, _ := f.Head()
+	kept := 0
+	for _, v := range f.Versions() {
+		if v == head.Version || kept < KeepVersions {
+			if v != head.Version {
+				kept++
+			}
+			continue
+		}
+		_ = os.RemoveAll(f.VersionDir(v))
 	}
 }
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -142,5 +144,84 @@ func TestDeclaredSeatWins(t *testing.T) {
 	g, err := l.Acquire(context.Background(), Tier1, "K")
 	if err != nil || !g.LowSeatTier1() {
 		t.Fatalf("grant = %+v, %v", g, err)
+	}
+}
+
+func TestFullWindowRefusesWhenWaitTooLong(t *testing.T) {
+	c := &clock{t: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
+	l := newLimiter(t, c)
+	l.MaxWait = time.Second
+	for i := 0; i < 10; i++ {
+		if _, err := l.Acquire(context.Background(), Tier1, "K"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := l.Acquire(context.Background(), Tier1, "K")
+	var rle *RateLimitedError
+	if !errors.As(err, &rle) || !rle.Local || rle.RetryAfter < 59*time.Second || rle.RateLimitType != SeatHigh {
+		t.Fatalf("11th call with a 1s max wait: %v", err)
+	}
+}
+
+func TestCorruptStateFailsOpen(t *testing.T) {
+	c := &clock{t: time.Now()}
+	l := newLimiter(t, c)
+	if err := os.WriteFile(l.Store.Path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Acquire(context.Background(), Tier1, "K"); err != nil {
+		t.Fatalf("an unreadable state file must not block requests: %v", err)
+	}
+}
+
+func TestCancelledWaitReturnsContextError(t *testing.T) {
+	l := newLimiter(t, &clock{t: time.Now()})
+	l.Now, l.Sleep = nil, nil
+	l.Observe429(Tier3, "K", http.Header{}, 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := l.Acquire(ctx, Tier3, "K"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestConcurrentProcessesShareTheWindow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ratelimit.json")
+	var mu sync.Mutex
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	var wg sync.WaitGroup
+	counts := make(chan int, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l := &Limiter{
+				Store: creds.Store{Path: path}, Profile: "work", MaxWait: time.Hour,
+				Now: func() time.Time { mu.Lock(); defer mu.Unlock(); return now },
+				Sleep: func(_ context.Context, d time.Duration) error {
+					mu.Lock()
+					defer mu.Unlock()
+					now = now.Add(d)
+					return nil
+				},
+			}
+			g, err := l.Acquire(context.Background(), Tier1, "K")
+			if err != nil {
+				t.Error(err)
+			}
+			counts <- g.MonthCount
+		}()
+	}
+	wg.Wait()
+	close(counts)
+	seen := map[int]bool{}
+	for c := range counts {
+		if seen[c] {
+			t.Fatalf("month count %d granted twice: a lost update", c)
+		}
+		seen[c] = true
+	}
+	if len(seen) != 20 {
+		t.Fatalf("%d grants recorded", len(seen))
 	}
 }

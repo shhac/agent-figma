@@ -14,30 +14,6 @@ import (
 
 const window = time.Minute
 
-type state struct {
-	Profiles map[string]*profileState `json:"profiles,omitempty"`
-	Files    map[string]*fileState    `json:"files,omitempty"`
-}
-
-type profileState struct {
-	RateLimitType string                `json:"rate_limit_type,omitempty"`
-	ObservedAt    time.Time             `json:"observed_at,omitempty"`
-	UpgradeLink   string                `json:"upgrade_link,omitempty"`
-	Tiers         map[string]*tierState `json:"tiers,omitempty"`
-}
-
-type tierState struct {
-	CooldownUntil time.Time   `json:"cooldown_until,omitempty"`
-	Recent        []time.Time `json:"recent,omitempty"`
-	Month         string      `json:"month,omitempty"`
-	MonthCount    int         `json:"month_count,omitempty"`
-}
-
-type fileState struct {
-	PlanTier   string    `json:"plan_tier,omitempty"`
-	ObservedAt time.Time `json:"observed_at,omitempty"`
-}
-
 // Limiter paces and gates requests for one profile.
 type Limiter struct {
 	Store   creds.Store
@@ -95,56 +71,60 @@ func (l *Limiter) sleep(ctx context.Context, d time.Duration) error {
 }
 
 // Acquire waits until a request to tier may be sent and records it. It fails
-// without waiting when the required wait is longer than MaxWait.
+// without waiting when the required wait is longer than MaxWait. The state
+// lock is held only to decide, never while sleeping.
 func (l *Limiter) Acquire(ctx context.Context, tier Tier, fileKey string) (Grant, error) {
 	for {
-		var wait time.Duration
-		var grant Grant
-		var refused *RateLimitedError
-		err := l.update(func(s *state) {
-			now := l.now()
-			ps := s.profile(l.Profile)
-			ts := ps.bucket(s.planBucket(fileKey), tier)
-			seat := l.seatClass(ps)
-			plan := l.plan(s, fileKey)
-			if now.Before(ts.CooldownUntil) {
-				wait = ts.CooldownUntil.Sub(now)
-				if wait > l.MaxWait {
-					refused = &RateLimitedError{Tier: tier, RetryAfter: wait, PlanTier: plan, RateLimitType: ps.RateLimitType, UpgradeLink: ps.UpgradeLink, Local: true}
-				}
-				return
-			}
-			ts.Recent = pruneBefore(ts.Recent, now.Add(-window))
-			if budget := PerMinute(seat, plan, tier); budget > 0 && len(ts.Recent) >= budget {
-				wait = ts.Recent[len(ts.Recent)-budget].Add(window).Sub(now)
-				if wait > l.MaxWait {
-					refused = &RateLimitedError{Tier: tier, RetryAfter: wait, PlanTier: plan, RateLimitType: seat, Local: true}
-				}
-				return
-			}
-			wait = 0
-			ts.Recent = append(ts.Recent, now)
-			month := now.UTC().Format("2006-01")
-			if ts.Month != month {
-				ts.Month, ts.MonthCount = month, 0
-			}
-			ts.MonthCount++
-			grant = Grant{Tier: tier, Seat: seat, Plan: plan, MonthCount: ts.MonthCount}
-		})
+		var d decision
+		err := l.update(func(s *state) { d = l.admit(s, tier, fileKey, l.now()) })
 		if err != nil {
 			// Budget state is advisory; an unreadable file must not block requests.
 			return Grant{Tier: tier}, nil
 		}
-		if refused != nil {
-			return Grant{}, refused
+		if d.refused != nil {
+			return Grant{}, d.refused
 		}
-		if wait <= 0 {
-			return grant, nil
+		if d.wait <= 0 {
+			return d.grant, nil
 		}
-		if err := l.sleep(ctx, wait); err != nil {
+		if err := l.sleep(ctx, d.wait); err != nil {
 			return Grant{}, err
 		}
 	}
+}
+
+type decision struct {
+	grant   Grant
+	wait    time.Duration
+	refused *RateLimitedError
+}
+
+// admit decides one request against the state: wait out a cooldown or a full
+// per-minute window, refuse when that wait is longer than MaxWait, or record
+// the request and grant it.
+func (l *Limiter) admit(s *state, tier Tier, fileKey string, now time.Time) decision {
+	ps := s.profile(l.Profile)
+	ts := ps.bucket(s.planBucket(fileKey), tier)
+	seat, plan := l.seatClass(ps), l.plan(s, fileKey)
+	refuse := func(wait time.Duration) decision {
+		if wait <= l.MaxWait {
+			return decision{wait: wait}
+		}
+		return decision{refused: &RateLimitedError{Tier: tier, RetryAfter: wait, PlanTier: plan, RateLimitType: seat, UpgradeLink: ps.UpgradeLink, Local: true}}
+	}
+	if now.Before(ts.CooldownUntil) {
+		return refuse(ts.CooldownUntil.Sub(now))
+	}
+	ts.Recent = pruneBefore(ts.Recent, now.Add(-window))
+	if budget := PerMinute(seat, plan, tier); budget > 0 && len(ts.Recent) >= budget {
+		return refuse(ts.Recent[len(ts.Recent)-budget].Add(window).Sub(now))
+	}
+	ts.Recent = append(ts.Recent, now)
+	if month := now.UTC().Format("2006-01"); ts.Month != month {
+		ts.Month, ts.MonthCount = month, 0
+	}
+	ts.MonthCount++
+	return decision{grant: Grant{Tier: tier, Seat: seat, Plan: plan, MonthCount: ts.MonthCount}}
 }
 
 // Grant describes the budget a request was sent under.
@@ -258,63 +238,4 @@ func (l *Limiter) plan(s *state, fileKey string) string {
 		return l.DeclaredPlan
 	}
 	return "pro"
-}
-
-func (l *Limiter) update(mutate func(*state)) error {
-	var s state
-	return l.Store.Update(&s, func() error {
-		s.ensure()
-		mutate(&s)
-		return nil
-	})
-}
-
-func (s *state) ensure() {
-	if s.Profiles == nil {
-		s.Profiles = map[string]*profileState{}
-	}
-	if s.Files == nil {
-		s.Files = map[string]*fileState{}
-	}
-}
-
-func (s *state) profile(name string) *profileState {
-	ps := s.Profiles[name]
-	if ps == nil {
-		ps = &profileState{}
-		s.Profiles[name] = ps
-	}
-	if ps.Tiers == nil {
-		ps.Tiers = map[string]*tierState{}
-	}
-	return ps
-}
-
-// planBucket is the plan Figma last reported for the file. Figma meters each
-// plan separately, so a 429 on one plan's file must not stall another's.
-func (s *state) planBucket(fileKey string) string {
-	if fs := s.Files[fileKey]; fs != nil && fs.PlanTier != "" {
-		return fs.PlanTier
-	}
-	return "unknown"
-}
-
-func (ps *profileState) bucket(plan string, t Tier) *tierState {
-	key := plan + "/" + t.String()
-	ts := ps.Tiers[key]
-	if ts == nil {
-		ts = &tierState{}
-		ps.Tiers[key] = ts
-	}
-	return ts
-}
-
-func pruneBefore(times []time.Time, cutoff time.Time) []time.Time {
-	kept := times[:0]
-	for _, t := range times {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	return kept
 }

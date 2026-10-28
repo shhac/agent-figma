@@ -29,6 +29,12 @@ Read-only: nothing writes to Figma.
 ## Install
 
 ```bash
+brew install shhac/tap/agent-figma
+```
+
+Upgrade with `brew upgrade shhac/tap/agent-figma`. Without Homebrew:
+
+```bash
 go install github.com/shhac/agent-figma/cmd/agent-figma@latest
 ```
 
@@ -41,7 +47,13 @@ make build
 ./agent-figma usage
 ```
 
-The LLM-facing skill lives in [`skills/agent-figma/`](skills/agent-figma/SKILL.md).
+## Claude Code / AI agent skill
+
+```bash
+npx skills add shhac/agent-skills --skill agent-figma --global
+```
+
+Installs the `agent-figma` skill globally so Claude Code (and other AI agents) can discover and use it automatically. It ships from [`shhac/agent-skills`](https://github.com/shhac/agent-skills) — the whole family's skills in one repo, so `npx skills update` checks a single source no matter how many you use. Want several at once? Run `npx skills add shhac/agent-skills --global` and pick from the list. The skill's source lives in [`skills/agent-figma/`](skills/agent-figma/SKILL.md).
 
 ## Quick start
 

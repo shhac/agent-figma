@@ -24,14 +24,37 @@ type mapping struct {
 	file   *codemap.File
 }
 
+// loadMapping reads the mapping for a map command, where a broken file is
+// the problem to report.
 func loadMapping(globals *shared.GlobalFlags) (mapping, error) {
 	wd, _ := os.Getwd()
 	path, exists := codemap.Locate(globals.ComponentsFile, wd)
 	f, err := codemap.Load(path)
 	if err != nil {
-		return mapping{}, agenterrors.Wrap(err, agenterrors.FixableByAgent).WithHint("Fix the JSON in " + path)
+		return mapping{}, agenterrors.Wrap(err, agenterrors.FixableByAgent).WithHint("Fix or move " + path + "; 'agent-figma components map --help' describes the format.")
 	}
 	return mapping{path: path, exists: exists, file: f}, nil
+}
+
+// readMapping reads the mapping for a read command, which should still
+// answer when the mapping is broken: it notes the problem and goes unmapped.
+func readMapping(globals *shared.GlobalFlags) mapping {
+	m, err := loadMapping(globals)
+	if err != nil {
+		output.Notice("Ignoring the component mapping: "+err.Error(), "Output is unmapped until the file is fixed.")
+		return mapping{}
+	}
+	return m
+}
+
+// refuseMappingWrite keeps MCP clients from writing into the server's
+// filesystem, as --out is refused there.
+func refuseMappingWrite() error {
+	if os.Getenv(ViaMCPEnv) == "" {
+		return nil
+	}
+	return agenterrors.New("changing the component mapping is not available through the MCP server", agenterrors.FixableByHuman).
+		WithHint("Run 'agent-figma components map add' (or suggest --write) in a terminal in the repository.")
 }
 
 // annotate adds the mapped code component to @components entries and
@@ -137,6 +160,9 @@ exists, @components and instance records carry the mapped code component and pro
     --prop Size=size --value Size.md=default --ignore State`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseMappingWrite(); err != nil {
+				return err
+			}
 			if component == "" || (setKey == "" && key == "" && name == "") {
 				return agenterrors.New("map add needs --component and one of --set-key, --key, or --name", agenterrors.FixableByAgent).
 					WithHint("Keys come from 'agent-figma components map status <ref>' (set_key / key on each entry).")
@@ -179,6 +205,11 @@ exists, @components and instance records carry the mapped code component and pro
 			ref, err := shared.ParseRef(args[0], suggestNodes)
 			if err != nil {
 				return err
+			}
+			if write {
+				if err := refuseMappingWrite(); err != nil {
+					return err
+				}
 			}
 			m, err := loadMapping(globals)
 			if err != nil {

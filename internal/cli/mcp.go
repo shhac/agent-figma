@@ -30,7 +30,7 @@ func registerMCP(root *cobra.Command) {
 		}
 	}
 	mcpCmd := agentmcp.Command(root,
-		agentmcp.WithHiddenFlags("color", "token", "base-url"),
+		agentmcp.WithHiddenFlags("color", "token", "base-url", "components-file"),
 		agentmcp.WithFileRoots(cacheRoots()...),
 		agentmcp.WithOAuthKeyringService(credential.MCPKeychainService()))
 	serve := mcpCmd.RunE

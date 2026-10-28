@@ -46,10 +46,7 @@ elsewhere.`,
 				return err
 			}
 			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
-				m, err := loadMapping(globals)
-				if err != nil {
-					return err
-				}
+				m := readMapping(globals)
 				files, err := buildHandoff(ctx, session, ref.NodeIDs[0], out, scale, m)
 				if err != nil {
 					return err

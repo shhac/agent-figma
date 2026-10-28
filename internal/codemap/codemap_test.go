@@ -71,3 +71,40 @@ func TestSuggestFindsExports(t *testing.T) {
 		t.Fatal("re-exports count")
 	}
 }
+
+func TestLoadRefusesNonMappingsAndNewerFormats(t *testing.T) {
+	dir := t.TempDir()
+	other := filepath.Join(dir, "tsconfig.json")
+	_ = os.WriteFile(other, []byte(`{"compilerOptions":{}}`), 0o644)
+	if _, err := Load(other); err == nil {
+		t.Fatal("a JSON file without components must not load as a mapping")
+	}
+	newer := filepath.Join(dir, "components.json")
+	_ = os.WriteFile(newer, []byte(`{"version":2,"components":[]}`), 0o644)
+	if _, err := Load(newer); err == nil {
+		t.Fatal("a newer format must not be silently downgraded")
+	}
+}
+
+func TestSaveRoundTripsAndUpsertMerges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), Dir, FileName)
+	f, _ := Load(path)
+	f.Upsert(Entry{Figma: FigmaRef{SetKey: "s", Name: "Button"}, Code: Code{Component: "Button", Import: "@/ui/button"},
+		Props: map[string]PropMap{"Size": {Prop: "size", Values: map[string]string{"md": "default"}}}, Notes: "keep me"})
+	if err := Save(path, f); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Upsert(Entry{Figma: FigmaRef{SetKey: "s"}, Code: Code{Component: "Button"}, Props: map[string]PropMap{"State": {Ignore: true}}})
+	e := f.Lookup("s", "", "")
+	if len(f.Components) != 1 || e.Code.Import != "@/ui/button" || e.Notes != "keep me" || e.Props["Size"].Prop != "size" || !e.Props["State"].Ignore {
+		t.Fatalf("re-adding should merge, not replace: %+v", f.Components)
+	}
+	info, _ := os.Stat(path)
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("a checked-in file should be 0644, got %v", info.Mode().Perm())
+	}
+}

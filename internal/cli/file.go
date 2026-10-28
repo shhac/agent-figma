@@ -99,6 +99,7 @@ func registerOutline(parent *cobra.Command, globals *shared.GlobalFlags) {
 					}
 				}
 				result := simplify.Simplify(store, roots, simplify.Options{View: simplify.ViewStructure, MaxDepth: depth, MaxNodes: maxNodes, ExpandInstances: expand})
+				readMapping(globals).annotate(&result, store)
 				return writeNodes(globals, session, result, missing, nil)
 			})
 		},

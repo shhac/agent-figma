@@ -814,3 +814,36 @@ func TestDesignerNotes(t *testing.T) {
 		t.Fatalf("handoff notes.json: %v %s", err, raw)
 	}
 }
+
+func TestMappingWritesRefusedUnderMCPAndBrokenMappingTolerated(t *testing.T) {
+	mockEnv(t)
+	repo := t.TempDir()
+	mapFile := filepath.Join(repo, ".agent-figma", "components.json")
+	t.Setenv("AGENT_FIGMA_COMPONENTS", mapFile)
+	t.Setenv(ViaMCPEnv, "1")
+	r := run(t, "components", "map", "add", "--set-key", mockfigma.ButtonSetKey, "--component", "Button")
+	if r.code == 0 || r.errJSON(t)["fixable_by"] != "human" {
+		t.Fatalf("map add under MCP should be refused: %s", r.stderr)
+	}
+	if _, err := os.Stat(mapFile); err == nil {
+		t.Fatal("nothing should be written under MCP")
+	}
+	t.Setenv(ViaMCPEnv, "")
+
+	_ = os.MkdirAll(filepath.Dir(mapFile), 0o755)
+	_ = os.WriteFile(mapFile, []byte("{bad"), 0o644)
+	r = mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeButtonInstance)
+	if !strings.Contains(r.stderr, "Ignoring the component mapping") {
+		t.Fatalf("a broken mapping should be a notice on reads: %s", r.stderr)
+	}
+	if r = run(t, "components", "map", "status", fileKey); r.code == 0 {
+		t.Fatal("map commands should report a broken mapping")
+	}
+
+	_ = os.Remove(mapFile)
+	mustRun(t, "components", "map", "add", "--set-key", mockfigma.ButtonSetKey, "--component", "Button")
+	r = mustRun(t, "file", "outline", fileKey, "--node", mockfigma.NodeCheckout)
+	if !strings.Contains(r.stdout, `"mapped":true`) {
+		t.Fatalf("file outline should apply the mapping: %s", r.stdout)
+	}
+}

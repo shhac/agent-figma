@@ -140,17 +140,17 @@ Rules, adapted from Framelink's simplifier:
 Downloads always go to the cache first and are named for humans:
 
 ```text
-<cache>/<profile>/<file_key>/<version>/renders/<page-slug>/<node-slug>--<node-id>[@2x].<ext>
-<cache>/<profile>/<file_key>/<version>/fills/<image_ref>.<ext>
+<cache>/<profile>/<file_key>/v-<version>/renders/<page-slug>/<node-slug>--<node-id>[@2x].<ext>
+<cache>/<profile>/<file_key>/v-<version>/fills/<image_ref>.<ext>
 ```
 
-`<cache>` is `xdg.CacheDir("agent-figma")`; profile names are sanitized before use in paths. A node not in the node store (so its page and name are unknown) is saved as `renders/<node-id>[@2x].<ext>` rather than spending a Tier 1 call to name it. `--out <dir>` copies files into `<dir>/<page-slug>/…`. Every downloaded file gets one manifest line: `{id, name, page, path, format, scale, bytes, source: render|fill|export}` with an absolute `path`.
+`<cache>` is `xdg.CacheDir("agent-figma")`; profile names are sanitized before use in paths. A node not in the node store (so its page and name are unknown) is saved as `renders/<node-id>[@2x].<ext>` rather than spending a Tier 1 call to name it. `--out <dir>` copies files into `<dir>/<page-slug>/…`. Every downloaded file gets one manifest line: `{id, name, page, path, file, format, scale, bytes, source: render|fill|export, downloaded}`. `path` is absolute; `file` is a `lib-agent-output` FileRef (`{"@type": "file", root: "cache", path, ...}`) so an MCP client can read the image through the `fs` tool. Under MCP, `path` is omitted and only the FileRef is given. `downloaded: false` means the file was already on disk.
 
 ## Cache
 
 Directories come from `lib-agent-cli/xdg` (cache and state dirs). The cache is scoped per profile so one account never reads another's data.
 
-Per file version (`<cache>/<profile>/<file_key>/<version>/`):
+Per file version (`<cache>/<profile>/<file_key>/v-<version>/`):
 
 - `nodes.json.gz` — a node store: every node Figma has returned for this version, keyed by id: its own properties, `parent`, `page`, and `known_depth`, the number of levels below it whose children lists are complete (`-1` = whole subtree, `0` = own properties only). `children` ids are stored only when `known_depth != 0`. Every Tier 1 response is decomposed into it and merged (taking the larger `known_depth`), so a fetch of a frame also caches all its descendants. Ancestors and pages that `GET /v1/files/:key?ids=` returns come with partial `children` arrays and are stored with `known_depth: 0`, so they are never mistaken for complete. The response's `components`/`componentSets` maps (node id → `{key, name, componentSetId, remote}`) are merged into the store too.
 - `renders.json` — `(node_id, format, scale, options) → {url, fetched_at}` or a recorded null. Render URLs expire after 30 days; treat them as stale after 29.
@@ -173,7 +173,8 @@ Because cost is per request, each Tier 1 call should carry the ids an agent is l
 Node fetches:
 
 - With no `--depth`, fetch with `GET /v1/files/:key?ids=…` rather than `/nodes`: same tier, but it also returns the ancestor chain, all pages, and the local components the subtree depends on. `depth` on that endpoint counts from the document root, so when a depth is requested use `/v1/files/:key/nodes?ids=…&depth=N` (relative to each node). If Figma answers `400 Request too large`, fall back to `/nodes` with depth 4, then 2, and report the cut in `@pagination`.
-- Add, in the same call, ids the cache already knows are related and not yet cached: the component set of a requested variant and its sibling variants. On a first touch these are unknown (the set's children arrive with the response), so the widening pays off from the second call on, or immediately when the Tier 3 library index is cached. At most 10 extra ids, since each extra id brings its whole subtree.
+- Add, in the same call, ids the cache already knows are related and not yet cached: the component set of a requested variant (its subtree holds every sibling variant), and the local main component and set behind an instance. Which set a variant belongs to comes from the node store when the variant's parent is known, or from the cached Tier 3 library (`containing_frame.containingComponentSet`), which knows it before any Tier 1 call; `file index` or `components list` populates it. On a cold first touch of an unpublished variant nothing is known, so the widening pays off from the next call. At most 10 extra ids, since each extra id brings its whole subtree.
+- When the fallback cut a subtree, the command emits a notice naming the ids and the records carry `truncated: true`.
 
 Renders:
 
@@ -242,9 +243,11 @@ skills/agent-figma     the LLM-facing skill (SKILL.md + references/)
 - Live tests (`go test -tags live`) read `FIGMA_TOKEN` and `AGENT_FIGMA_LIVE_URL`, skip when either is missing, and assert only shape, never content.
 - `make apicheck` (later) validates emitted paths and query parameters against Figma's published OpenAPI spec, as `agent-stripe` does with Stripe's.
 
+`nodes find` searches only the cache (fetching the depth-2 outline first if nothing is cached) and ends with `@coverage {searched, matches, incomplete}`, where `incomplete` lists frames, sections, sets, and pages whose contents are not cached, so a miss inside them is not proof of absence.
+
 ## MCP
 
-`agent-figma mcp` comes from `lib-agent-mcp` over the cobra tree, with `auth`, `config`, `usage`, and `cache clear` left out of the tool surface, `--token` hidden, `WithOAuthKeyringService("app.paulie.agent-figma.mcp")`, and the cache directory registered with `WithFileRoots(xdg.Root("cache", …))` so manifest paths resolve through the read-only `fs` tool rather than exposing host paths. `--out` is refused when running under MCP.
+`agent-figma mcp` comes from `lib-agent-mcp` over the cobra tree, with `auth`, `config`, `usage`, and `cache` left out of the tool surface, `--token` hidden, `WithOAuthKeyringService("app.paulie.agent-figma.mcp")`, and the cache directory registered with `WithFileRoots(xdg.Root("cache", …))` so manifest paths resolve through the read-only `fs` tool rather than exposing host paths. `--out` is refused when running under MCP. The MCP command sets `AGENT_FIGMA_VIA_MCP=1` for the tool subprocesses it runs, which is how commands know.
 
 ## Deliberately not in v1
 

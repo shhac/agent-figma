@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -558,5 +560,69 @@ func TestHandoffWritesAFolderWithinBudget(t *testing.T) {
 	mustRun(t, "handoff", fileLink(mockfigma.NodeCheckout), "--out", t.TempDir())
 	if after := srv.Stats(); after.Tier1 != stats.Tier1 || after.Tier2 != stats.Tier2 {
 		t.Fatal("a repeated handoff should come from the cache")
+	}
+}
+
+func TestDiffAfterAnEdit(t *testing.T) {
+	srv := mockEnv(t)
+	mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	if _, err := srv.Edit(fileKey,
+		mockfigma.Edit{Op: mockfigma.EditSet, Node: mockfigma.NodeTotalText, Field: "characters", Value: "Total: $50.00"},
+		mockfigma.Edit{Op: mockfigma.EditRemove, Node: mockfigma.NodeHeroImage},
+		mockfigma.Edit{Op: mockfigma.EditAdd, Parent: mockfigma.NodeCheckout, Index: mockfigma.AppendIndex, NodeJSON: json.RawMessage(`{"id":"9:1","type":"FRAME","name":"Promo","absoluteBoundingBox":{"x":24,"y":900,"width":327,"height":40},"children":[{"id":"9:2","type":"TEXT","name":"t","characters":"Sale"}]}`)},
+	); err != nil {
+		t.Fatal(err)
+	}
+	before := srv.Stats().Tier1
+	r := mustRun(t, "diff", fileKey, "--node", mockfigma.NodeCheckout)
+	if srv.Stats().Tier1 != before+1 {
+		t.Fatalf("diff after an edit should cost one Tier 1 call, cost %d", srv.Stats().Tier1-before)
+	}
+	got := map[string]map[string]any{}
+	for _, rec := range r.lines(t) {
+		if c, ok := rec["change"].(string); ok {
+			got[c+" "+rec["id"].(string)] = rec
+		}
+	}
+	text := got["changed "+mockfigma.NodeTotalText]
+	if text == nil || !strings.Contains(fmt.Sprint(text["fields"]), "$50.00") {
+		t.Fatalf("text change missing: %s", r.stdout)
+	}
+	if got["removed "+mockfigma.NodeHeroImage] == nil || got["added 9:1"] == nil || got["added 9:2"] != nil {
+		t.Fatalf("add/remove: %s", r.stdout)
+	}
+	sum, _ := r.meta(t, "@diff").(map[string]any)
+	if sum["from"] != mockfigma.InitialVersion || sum["to"] == mockfigma.InitialVersion {
+		t.Fatalf("@diff versions: %v", sum)
+	}
+	// Both versions are cached now: diffing again is free.
+	mustRun(t, "diff", fileKey, "--node", mockfigma.NodeCheckout)
+	if srv.Stats().Tier1 != before+1 {
+		t.Fatal("a repeated diff should be answered from the cache")
+	}
+}
+
+func TestDiffWithRenderAndExplicitFrom(t *testing.T) {
+	srv := mockEnv(t)
+	if _, err := srv.Edit(fileKey, mockfigma.Edit{Op: mockfigma.EditSet, Node: mockfigma.NodeStatusDot, Field: "fills", Value: []map[string]any{{"type": "SOLID", "color": map[string]any{"r": 1, "g": 0, "b": 0, "a": 1}}}}); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing cached: the baseline comes from --from via ?version=.
+	r := mustRun(t, "diff", fileKey, "--node", mockfigma.NodeCard, "--from", mockfigma.InitialVersion, "--render")
+	pairs := r.metaAll(t, "@render")
+	if len(pairs) == 0 || pairs[0]["before"] == nil || pairs[0]["after"] == nil {
+		t.Fatalf("expected before/after renders: %s", r.stdout)
+	}
+	if head, _ := r.meta(t, "@file").(map[string]any); head["version"] == mockfigma.InitialVersion {
+		t.Fatalf("fetching an old version must not move the head: %v", head)
+	}
+	_ = srv
+}
+
+func TestDiffWithoutBaselineExplainsWhatToDo(t *testing.T) {
+	mockEnv(t)
+	r := run(t, "diff", fileKey, "--node", mockfigma.NodeCheckout)
+	if r.code == 0 || !strings.Contains(r.errJSON(t)["hint"].(string), "--from") {
+		t.Fatalf("no baseline: %s", r.stderr)
 	}
 }

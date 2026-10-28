@@ -2,6 +2,8 @@ package simplify
 
 import (
 	"cmp"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -109,19 +111,9 @@ func variantPropsOfInstance(n figma.Node) map[string]any {
 }
 
 func propsKey(props map[string]any) string {
-	keys := make([]string, 0, len(props))
-	for k := range props {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
 	var b strings.Builder
-	for _, k := range keys {
-		b.WriteString(k)
-		b.WriteString("=")
-		if s, ok := props[k].(string); ok {
-			b.WriteString(s)
-		}
-		b.WriteString(";")
+	for _, k := range slices.Sorted(maps.Keys(props)) {
+		b.WriteString(k + "=" + fmt.Sprint(props[k]) + ";")
 	}
 	return b.String()
 }

@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"cmp"
 	"context"
 	"strconv"
 
@@ -204,7 +205,7 @@ func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string,
 	if err != nil {
 		return nil, err
 	}
-	store, err := s.File.UpdateNodes(s.versionOf(resp.Version), func(st *cache.NodeStore) error {
+	store, err := s.File.UpdateNodes(s.versionOf(cmp.Or(resp.Version, version)), func(st *cache.NodeStore) error {
 		_, merr := st.MergeNodes(resp, depth)
 		return merr
 	})
@@ -234,7 +235,7 @@ func (s *Session) getFile(ctx context.Context, q map[string][]string) (*figma.Fi
 // storeFile merges a file response. A response for a pinned (older) version
 // is stored under it without moving the file's head.
 func (s *Session) storeFile(resp *figma.FileResponse, requested []string, depth int, pinned string) (*cache.NodeStore, error) {
-	store, err := s.File.UpdateNodes(s.versionOf(resp.Version), func(st *cache.NodeStore) error {
+	store, err := s.File.UpdateNodes(s.versionOf(cmp.Or(resp.Version, pinned)), func(st *cache.NodeStore) error {
 		return st.MergeFile(resp, requested, depth)
 	})
 	if err != nil {

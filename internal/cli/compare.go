@@ -7,7 +7,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	// Screenshots may be JPEG as well as PNG.
 	_ "image/jpeg"
@@ -120,7 +119,7 @@ func runCompare(ctx context.Context, session *fetch.Session, id string, actual i
 	result := imagediff.Compare(design, actual, threshold)
 	diffPath := out
 	if diffPath == "" {
-		diffPath = filepath.Join(session.File.VersionDir(store.Version), "compare", cache.NodeIDSegment(id)+"@"+strconv.FormatFloat(scale, 'f', -1, 64)+"x-diff.png")
+		diffPath = filepath.Join(session.File.VersionDir(store.Version), "compare", cache.NodeIDSegment(id)+"@"+trimFloat(scale)+"x-diff.png")
 	}
 	if err := writePNG(diffPath, result.Diff); err != nil {
 		return nil, agenterrors.Wrap(err, agenterrors.FixableByHuman).WithHint("Check that the diff image path is writable")

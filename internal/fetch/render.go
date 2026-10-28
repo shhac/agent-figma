@@ -116,25 +116,11 @@ func (s *Session) Render(ctx context.Context, req RenderRequest) (*RenderResult,
 	}
 	known := s.knownStore(version)
 	view := s.renderView(version, req)
-	var err error
-	need := view.missing(req.IDs)
 	var related []string
 	if s.prefetching() {
 		related = s.renderRelated(known, req)
 	}
-	// Uncached related renders ride along on a call that is happening anyway,
-	// or get a call of their own when --with-related asked for them.
-	extras := view.missing(related)
-	switch {
-	case len(need) > 0:
-		err = s.refreshRenders(ctx, version, req, &view, need, extras)
-		s.Prefetched.Renders += len(extras) - len(view.missing(extras))
-	case req.WithRelated && len(extras) > 0:
-		err = s.refreshRenders(ctx, version, req, &view, extras, nil)
-	default:
-		s.CacheHits++
-	}
-	if err != nil {
+	if err := s.ensureRenders(ctx, version, req, &view, related); err != nil {
 		return nil, err
 	}
 	result := s.assembleRenders(known, version, req, view, related)
@@ -142,6 +128,25 @@ func (s *Session) Render(ctx context.Context, req RenderRequest) (*RenderResult,
 		s.downloadRenders(ctx, version, req, &view, result)
 	}
 	return result, nil
+}
+
+// ensureRenders makes sure the requested URLs are cached. Uncached related
+// renders ride along on a call that is happening anyway, or get a call of
+// their own when --with-related asked for them.
+func (s *Session) ensureRenders(ctx context.Context, version string, req RenderRequest, view *renderView, related []string) error {
+	need, extras := view.missing(req.IDs), view.missing(related)
+	if len(need) > 0 {
+		if err := s.refreshRenders(ctx, version, req, view, need, extras); err != nil {
+			return err
+		}
+		s.Prefetched.Renders += len(extras) - len(view.missing(extras))
+		return nil
+	}
+	if req.WithRelated && len(extras) > 0 {
+		return s.refreshRenders(ctx, version, req, view, extras, nil)
+	}
+	s.CacheHits++
+	return nil
 }
 
 func (r RenderRequest) validate() error {

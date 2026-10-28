@@ -157,7 +157,7 @@ func (s *Session) currentVersion(ctx context.Context) (string, error) {
 		}
 		return "", offlineMiss()
 	}
-	if haveHead && !s.Opts.Refresh && s.now().Sub(head.CheckedAt) < s.Opts.FreshFor {
+	if haveHead && s.fresh(head.CheckedAt) {
 		return head.Version, nil
 	}
 	meta, err := s.Meta(ctx)
@@ -176,6 +176,12 @@ func (s *Session) currentVersion(ctx context.Context) (string, error) {
 		output.Notice("Could not re-check the file's version; answering from the last known version", err.Error())
 	}
 	return head.Version, nil
+}
+
+// fresh reports something fetched at t that is still inside the freshness
+// window, unless --refresh asked to look again.
+func (s *Session) fresh(t time.Time) bool {
+	return !s.Opts.Refresh && s.now().Sub(t) < s.Opts.FreshFor
 }
 
 func offlineMiss() error {

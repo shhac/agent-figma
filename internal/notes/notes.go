@@ -54,9 +54,10 @@ var noteName = regexp.MustCompile(`(?i)sticky|note|annotation|comment|todo`)
 // ancestors up to the page, within radius of id's box; and, inside a
 // containing SECTION, its loose text at any distance.
 func Canvas(store *cache.NodeStore, id string, radius float64) ([]Note, Coverage) {
-	cov := Coverage{Complete: true}
+	var cov Coverage
 	target, ok := store.Node(id)
 	if !ok || target.AbsoluteBoundingBox == nil {
+		cov.Complete = true
 		return nil, cov
 	}
 	var out []Note
@@ -69,7 +70,6 @@ func Canvas(store *cache.NodeStore, id string, radius float64) ([]Note, Coverage
 		}
 		stored := store.Nodes[ancestorID]
 		if stored.KnownDepth == 0 {
-			cov.Complete = false
 			cov.Uncached = append(cov.Uncached, ancestorID)
 		}
 		inSection := ancestor.Type == "SECTION"
@@ -110,6 +110,7 @@ func Canvas(store *cache.NodeStore, id string, radius float64) ([]Note, Coverage
 		child = ancestorID
 	}
 	slices.SortStableFunc(out, func(a, b Note) int { return int(a.Distance - b.Distance) })
+	cov.Complete = len(cov.Uncached) == 0
 	return out, cov
 }
 

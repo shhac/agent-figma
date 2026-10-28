@@ -22,7 +22,8 @@ func (s *Session) Comments(ctx context.Context) ([]figma.Comment, error) {
 	}
 	store := s.File.JSONMap(cacheVersion(version), "comments")
 	var cached commentCache
-	if store.Load(&cached) == nil && cached.Comments != nil && (s.Opts.Offline || (!s.Opts.Refresh && s.now().Sub(cached.FetchedAt) < s.Opts.FreshFor)) {
+	loaded := store.Load(&cached) == nil && cached.Comments != nil
+	if loaded && (s.Opts.Offline || s.fresh(cached.FetchedAt)) {
 		s.CacheHits++
 		return cached.Comments, nil
 	}

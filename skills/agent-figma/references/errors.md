@@ -13,6 +13,8 @@ Errors: one JSON object on stderr, non-zero exit, nothing useful on stdout.
 
 Per-item misses are **not** errors: `@unresolved` lines on stdout, exit 0
 (unknown node ids, nodes that render as nothing, unknown library keys).
+Node misses are remembered for the file version, so repeating one is free;
+a library key miss hints to list the keys with `components|component-sets|styles list <ref>`.
 
 Notices: `{"notice","hint"}` on stderr, exit unaffected. Informational
 (token expiring, Tier 1 monthly count, a depth-limited fallback).
@@ -27,12 +29,13 @@ Notices: `{"notice","hint"}` on stderr, exit unaffected. Informational
 | `The token is missing a scope for this request` | human | User regenerates the token with the scope named; `agent-figma usage` lists the recommended ones |
 | `Figma limits this endpoint by plan or seat` | human | Variables are Enterprise-only. Use `styles list` and `@styles` names instead |
 | `Permission denied` | human | The token's user cannot open this file; ask the user to check sharing |
-| `Not found: …` | agent | Wrong key or a link from another account. Check with `resolve`; branch links are routed automatically, but a bare branch key cannot list library items |
-| `Figma refused the request as too large` | agent | Ask for a narrower `--node` (a child frame) or a smaller `--depth` |
-| `nothing cached for this file and --offline forbids calling Figma` | agent | Drop `--offline`, or check `cache status` for the profile and key |
+| `Not found` | agent | Wrong file key, or a file the token's account cannot open. Check the key with `resolve <url>`; link keys (including branches) are routed automatically. Library lists and `dev-resources` need the main key or the branch link, not a bare branch key |
+| `Figma refused the request as too large` | agent | Even a depth-1 fetch was refused (deeper ones fall back on their own, see below). Ask for a narrower `--node` (a child frame) |
+| `the cache cannot answer this and --offline forbids calling Figma` | agent | Drop `--offline`, or check `cache status` for the profile and key |
 | `profile "x" is not configured` | agent | `agent-figma auth list`; pick an existing profile or ask the user to add one |
 | `assets export needs at least one node id` (likewise `render`) | agent | Pass `--node <id>` or a link with `?node-id=` |
-| `--scale must be between 0.01 and 4` | agent | Fix the value; svg/pdf ignore scale anyway |
+| `--scale must be between 0.01 and 4` | agent | Fix the value (the hint suggests `--scale 2` for retina rasters, `--as svg` for vectors); svg/pdf ignore scale anyway |
+| `image format must be one of png, jpg, svg, pdf` | agent | The image format goes in `--as`; `--format` is the output format |
 | `--out is not available through the MCP server` | agent | Under MCP, read the manifest `file` reference with the `fs` tool |
 | `Figma server error (5xx)` | retry | Already retried `--max-retries` times; re-run later |
 
@@ -51,6 +54,6 @@ answer from an older cached version when they can (`@file.stale: true`).
 |---|---|
 | `The token for profile "x" expires in N day(s)` / `expired on …` | User should rotate it: `auth update x --form --expires YYYY-MM-DD` |
 | `Spent a Tier 1 call on a monthly-limited budget (N this month …)` | Low seat or Starter file; keep Tier 1 calls to a minimum |
-| `Figma refused the full subtree of … as too large; showing a depth-limited tree` | Output stops early; records marked `truncated` need their own `nodes get --node` |
+| `Figma refused the full subtree of … as too large; showing a depth-limited tree` | The CLI fell back to depth 4, 2, or 1 (up to three extra Tier 1 calls). Records marked `truncated` are listed in `@pagination.next_cursor`; pass it back as `--node` to fetch them |
 | `Could not check the file's version with /meta, so the cache was not validated` | Usually a missing `file_metadata:read` scope; answers may be older than the file |
 | `Could not re-check the file's version; answering from the last known version` | Network or budget trouble on the freshness check; the answer may be stale |

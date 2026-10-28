@@ -9,11 +9,11 @@ Agents are increasingly asked to "look at this Figma link" — to build a screen
 ## Features
 
 - **Link-first**: pass any figma.com link (`/design/`, `/file/`, `/proto/`, `/board/`, branch links) or a bare file key; `node-id` in the link becomes the target node. `resolve` parses links with no API call.
-- **LLM-shaped nodes**: one NDJSON record per node with layout as flex vocabulary (`mode`, `gap`, `padding`, `sizing`), CSS-ish paints, text with its style, instance props and variant props; auto-generated names, hidden layers, and vector noise are dropped; repeated values move into a shared `@styles` table. `--view structure|layout|text|visuals` narrows further; `--raw` gives Figma's JSON.
-- **Budget-aware by design**: a per-profile, per-version node cache that every Tier 1 response is merged into; batching; prefetch of sibling variants into the same call; shared cooldowns across parallel processes; stale answers for low seats when a file is mid-edit; `--offline` and `--refresh`. Every command ends with an `@budget` line saying what it spent.
-- **Related things up front**: `@related` lines list ancestors, the page, the component set, sibling variants, and main components, each with what reading it would cost (`cached`, `download`, `tier1`…).
+- **LLM-shaped nodes**: one NDJSON record per node with layout as flex vocabulary (`mode`, `gap`, `padding`, `sizing`), CSS-ish paints, text with its style, instance props and variant props; auto-generated names, hidden layers, and vector noise are dropped (icons and illustrations become one leaf marked `"svg": true`, keeping their Figma type); repeated values move into a shared `@styles` table. `--view structure|layout|text|visuals` narrows further; `--raw` gives Figma's JSON.
+- **Budget-aware by design**: a per-profile, per-version node cache that every Tier 1 response is merged into; batching; prefetch of sibling variants into the same call; shared cooldowns across parallel processes; stale answers for low seats when a file is mid-edit; unknown node ids remembered per version; `--offline` and `--refresh`. Every file read ends with an `@budget` line saying what it spent.
+- **Related things up front**: `@related` lines list ancestors, the page, the component set, sibling variants, and main components, each with what reading it would cost (`cached`, `download`, or `tier1`).
 - **Renders and assets on disk**: `render` (png/jpg/svg/pdf), `assets fills` (image fills), and `assets export` (designer export settings) save human-named files and print a manifest line per file.
-- **Library and file reads**: `file index` catalogue (pages, frames, component sets with variants and thumbnails, styles), components, component sets, styles, variables (Enterprise), comments, versions, dev resources, plus a GET-only `api get` escape hatch.
+- **Library and file reads**: `file index` catalogue (pages, frames, component sets with variants and thumbnails, styles), components, component sets, styles, variables (Enterprise; values per mode name, colours as CSS, aliases as `{"alias": id}`), comments, versions, dev resources, plus a GET-only `api get` escape hatch.
 - **Structured errors**: JSON on stderr with `fixable_by` (`agent` | `human` | `retry`), a `hint`, and `retry_after_seconds` for rate limits — including whether a seat change, not waiting, is what would help.
 - **Keychain-first credentials**: tokens are entered through a native dialog (`--form`), stored in the OS keychain, and never printed, logged, or echoed in errors.
 - **MCP server**: `agent-figma mcp` exposes the read commands as MCP tools, with a read-only `fs` tool for the downloaded images.
@@ -90,7 +90,7 @@ agent-figma nodes get FAKEFILEKEY0000000000000 --node 2:30 --offline
 A node record:
 
 ```json
-{"id":"2:30","parent":"2:10","depth":0,"type":"FRAME","name":"Card","size":[327,120],"layout":{"align":"center","gap":"12px","mode":"row","padding":"16px","sizing":{"h":"fill","v":"hug"}},"fills":"#FFFFFF","strokes":{"paint":"#E2E4E8","weight":"1px"},"effects":"effect_e3838271","radius":12,"children":1}
+{"id":"2:30","parent":"2:10","depth":0,"type":"FRAME","name":"Card","size":[327,120],"layout":{"align":"center","gap":"12px","mode":"row","padding":"16px"},"fills":"#FFFFFF","strokes":{"paint":"#E2E4E8","weight":"1px"},"effects":"effect_e3838271","radius":12,"children":1}
 ```
 
 The trailing budget line:
@@ -101,7 +101,7 @@ The trailing budget line:
 
 ## Output
 
-NDJSON on stdout: records, then `@`-prefixed meta lines (`@file`, `@styles`, `@unresolved`, `@related`, `@pagination`, `@coverage`, `@budget`). `--format json|yaml` wraps the same output in one object. Errors are a single JSON object on stderr with a non-zero exit:
+NDJSON on stdout: records, then `@`-prefixed meta lines (`@file`, `@styles`, `@unresolved`, `@related`, `@pagination`, `@coverage`, `@budget`). Empty fields are left out. Large subtrees page with `--max-nodes`: pass `@pagination.next_cursor` back as `--node` to continue from the cache. `--format json|yaml` wraps the same output in one object. Errors are a single JSON object on stderr with a non-zero exit:
 
 ```json
 {"error":"Figma rejected the token: Invalid token","fixable_by":"human","hint":"The token is invalid or expired. Generate a new one in Figma (Settings > Security > Personal access tokens) and run 'agent-figma auth update <profile> --form'."}

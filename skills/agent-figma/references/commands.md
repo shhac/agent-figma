@@ -14,9 +14,9 @@ json|yaml|jsonl` (default NDJSON), `--refresh`, `--offline`, `--no-prefetch`,
 |---|---|---|
 | `resolve <url-or-key>...` | none (offline parse) | [library-and-other-reads.md](library-and-other-reads.md#links-and-keys) |
 | `file meta <ref>` | Tier 3 | [library-and-other-reads.md](library-and-other-reads.md#file-meta) |
-| `file index <ref> [--no-outline]` | Tier 3 ×3-4, + 1 Tier 1 unless the outline is cached | [library-and-other-reads.md](library-and-other-reads.md#file-index) |
+| `file index <ref> [--no-outline]` | Tier 3 ×3-4, + 1 Tier 1 unless the outline is cached (it caches what a default `file outline` needs) | [library-and-other-reads.md](library-and-other-reads.md#file-index) |
 | `file outline <ref> [--node id] [--depth N] [--max-nodes N]` | cache first, else 1 Tier 1 | [reading-nodes.md](reading-nodes.md#file-outline) |
-| `nodes get <ref> [--node id...] [--depth N] [--view V] [--raw] [--max-nodes N]` | cache first, else 1 Tier 1 per call | [reading-nodes.md](reading-nodes.md) |
+| `nodes get <ref> [--node id...] [--depth N] [--view V] [--raw] [--max-nodes N]` | cache first, else 1 Tier 1 per call (up to 4 if Figma refuses the subtree as too large); following a `--max-nodes` cursor is free | [reading-nodes.md](reading-nodes.md) |
 | `nodes find <ref> [--name glob] [--type T] [--page name] [--limit N]` | cache only (1 Tier 1 if nothing is cached) | [reading-nodes.md](reading-nodes.md#nodes-find) |
 | `render <ref> --node id... [--as png\|jpg\|svg\|pdf] [--scale N] [--with-related] [--url-only] [--out dir]` | cache first, else 1 Tier 1 per batch | [rendering-and-assets.md](rendering-and-assets.md) |
 | `assets fills <ref> [--node id...] [--out dir]` | 1 Tier 2 (whole file, cached) | [rendering-and-assets.md](rendering-and-assets.md#assets-fills) |

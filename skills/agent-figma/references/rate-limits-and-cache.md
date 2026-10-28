@@ -14,8 +14,9 @@ owner's seat and on that file's plan:
 
 So, in order of preference: an answer from the cache (`cost: cached`), a
 known render URL (`cost: download`, CDN only), a Tier 3 call, a Tier 2 call,
-and last a Tier 1 call. Every command ends with `@budget` saying what it
-spent:
+and last a Tier 1 call (`cost: tier1`; `@related` entries only ever cost
+`cached`, `download`, or `tier1`). Every read of a file ends with `@budget`
+saying what it spent:
 
 ```json
 {"@budget":{"cache_hits":1,"calls":{"tier1":0,"tier2":0,"tier3":0},"prefetched":{"nodes":0,"renders":0}}}
@@ -72,8 +73,8 @@ Each command first decides which file version is current: within
 `cache_fresh_s` (default 300s) of the last check it trusts the cached
 version; otherwise it asks `/meta` (Tier 3) and compares.
 
-When the file changed and nothing is cached for the new version, but an
-older version could answer, `serve_stale` decides:
+When that check finds the file changed and nothing is cached for the new
+version, but an older version could answer, `serve_stale` decides:
 
 | `serve_stale` | Behaviour |
 |---|---|
@@ -91,8 +92,10 @@ Mention it to the user when recency matters (a designer is editing now).
 
 Per-command overrides:
 
-- `--refresh`: re-check the version now (ignores `cache_fresh_s`) and refetch
-  if it changed.
+- `--refresh`: re-check the version now (ignores `cache_fresh_s`) and answer
+  from the current version, fetching it if it is not cached. It never gives
+  a stale answer, even with `serve_stale on`. Stale answers only come from
+  the routine version check above.
 - `--offline`: never call Figma. Answers from the newest cached version for
   this profile and key, or fails with `fixable_by: agent` ("nothing cached
   for this file and --offline forbids calling Figma").

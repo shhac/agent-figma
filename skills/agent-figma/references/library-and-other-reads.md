@@ -10,7 +10,11 @@ agent-figma resolve "https://www.figma.com/design/FAKEFILEKEY0000000000000/branc
 
 ```json
 {"api_key":"FAKEBRANCHKEY00000000000","branch_key":"FAKEBRANCHKEY00000000000","editor_path":"design","file_key":"FAKEFILEKEY0000000000000","input":"https://www.figma.com/design/FAKEFILEKEY0000000000000/branch/FAKEBRANCHKEY00000000000/Example-File?node-id=2-10","node_ids":["2:10"]}
+{"api_key":"FAKEFILEKEY0000000000000","file_key":"FAKEFILEKEY0000000000000","input":"FAKEFILEKEY0000000000000"}
 ```
+
+Fields that do not apply are left out: a bare key has no `editor_path`,
+`branch_key`, or `node_ids`.
 
 **Branch vs main key.** A `/branch/<key>` link has two keys. Every command
 routes automatically:
@@ -21,8 +25,9 @@ routes automatically:
   `dev-resources` use the main `file_key`, because Figma only serves them for
   the main file.
 
-A bare key is used as given everywhere, so pass the main key (or the link)
-to library commands.
+A bare key is used as given everywhere: a bare branch key sent to a library
+command or `dev-resources` comes back `Not found`, so pass the main key or
+the branch link instead.
 
 ## file meta
 
@@ -51,11 +56,15 @@ Records have a `kind`:
 
 ```json
 {"frames":2,"id":"1:1","kind":"page","name":"Components"}
-{"id":"1:10","kind":"frame","name":"Button","page":"Components","size":[424,72],"type":"COMPONENT_SET"}
+{"children":3,"id":"1:10","kind":"frame","name":"Button","page":"Components","size":[424,72],"type":"COMPONENT_SET"}
 {"description":"Primary action button.","file_key":"FAKEFILEKEY0000000000000","key":"fakecomponentsetkey0000000000000000000110","kind":"component_set","name":"Button","node_id":"1:10","page":"Components","thumbnail_url":"…","updated_at":"2026-01-12T12:00:00Z","variants":[{"key":"fakecomponentkey0000000000000000000000111","node_id":"1:11","props":{"Size":"md","State":"Default"},"thumbnail_url":"…"}]}
 {"description":"Five-point star icon.","key":"fakecomponentkey0000000000000000000000120","kind":"component","name":"Icon/Star","node_id":"1:20","page":"Components","thumbnail_url":"…"}
 {"description":"Primary brand colour.","key":"fakestylekey0000000000000000000000000091","kind":"style","name":"Brand/Primary","node_id":"9:1","style_type":"FILL","thumbnail_url":"…"}
+{"@budget":{"cache_hits":0,"calls":{"tier1":1,"tier2":0,"tier3":4},"prefetched":{"nodes":0,"renders":0}}}
 ```
+
+The outline it caches is the depth a default `file outline` prints, so
+`file outline` straight after `file index` is free.
 
 Published components and variants carry `thumbnail_url`, a small preview you
 can look at without spending a render. Unpublished components appear only
@@ -81,7 +90,12 @@ agent-figma styles get fakestylekey0000000000000000000000000091
 ```
 
 `node_id` is what `nodes get` / `render` take; `key` is the published
-library key, only for `get`. `style_type` is `FILL|TEXT|EFFECT|GRID`.
+library key, only for `get`. `style_type` is `FILL|TEXT|EFFECT|GRID`. A key
+`get` does not know is a per-key miss, exit 0:
+
+```json
+{"@unresolved":{"id":"fakecomponentkey0000000000000000000009999","reason":"Not found","fixable_by":"agent","hint":"Check the key with 'agent-figma components|component-sets|styles list <ref>'; keys are not node ids."}}
+```
 
 ## Variables
 
@@ -93,16 +107,23 @@ agent-figma variables list FAKEFILEKEY0000000000000 --published  # what this fil
 ```
 
 ```json
-{"defaultModeId":"8:0","id":"VariableCollectionId:8:0","key":"fakevariablecollectionkey0001","kind":"collection","modes":[{"modeId":"8:0","name":"Light"},{"modeId":"8:1","name":"Dark"}],"name":"Tokens","remote":false}
-{"codeSyntax":{"WEB":"var(--color-brand)"},"id":"VariableID:8:1","kind":"variable","name":"color/brand","resolvedType":"COLOR","scopes":["ALL_FILLS"],"values":{"Dark":{"a":1,"b":1,"g":0.561,"r":0.459},"Light":{"a":1,"b":0.961,"g":0.357,"r":0.231}},"variableCollectionId":"VariableCollectionId:8:0"}
-{"id":"VariableID:8:3","kind":"variable","name":"color/action","resolvedType":"COLOR","values":{"Dark":{"id":"VariableID:8:1","type":"VARIABLE_ALIAS"},"Light":{"id":"VariableID:8:1","type":"VARIABLE_ALIAS"}}}
+{"default_mode":"Light","id":"VariableCollectionId:8:0","key":"fakevariablecollectionkey0001","kind":"collection","modes":[{"id":"8:0","name":"Light"},{"id":"8:1","name":"Dark"}],"name":"Tokens"}
+{"code_syntax":{"WEB":"var(--color-brand)"},"collection":"Tokens","collection_id":"VariableCollectionId:8:0","description":"Brand colour.","id":"VariableID:8:1","key":"fakevariablekey0001","kind":"variable","name":"color/brand","scopes":["ALL_FILLS"],"type":"color","values":{"Dark":"#758FFF","Light":"#3B5BF5"}}
+{"collection":"Tokens","collection_id":"VariableCollectionId:8:0","id":"VariableID:8:2","key":"fakevariablekey0002","kind":"variable","name":"spacing/md","scopes":["GAP"],"type":"float","values":{"Dark":16,"Light":16}}
+{"collection":"Tokens","collection_id":"VariableCollectionId:8:0","description":"Alias of color/brand.","id":"VariableID:8:3","key":"fakevariablekey0003","kind":"variable","name":"color/action","scopes":["ALL_FILLS"],"type":"color","values":{"Dark":{"alias":"VariableID:8:1"},"Light":{"alias":"VariableID:8:1"}}}
+{"@budget":{"cache_hits":0,"calls":{"tier1":0,"tier2":1,"tier3":0},"prefetched":{"nodes":0,"renders":0}}}
 ```
 
-Variables keep Figma's field names (camelCase). `values` is keyed by mode
-name; colours are 0-1 floats `{r,g,b,a}`; an alias is
-`{type: "VARIABLE_ALIAS", id}`, resolved by finding that id in the list. On
-other plans the command fails with `fixable_by: human` ("Limited by Figma
-plan"): fall back to `styles list` and the `@styles` names in `nodes get`.
+Records are snake_case like node records, and empty fields are left out:
+
+- **collection**: `{kind: "collection", id, name, key, modes: [{id, name}], default_mode, remote?, hidden_from_publishing?}`. `default_mode` is the mode's name.
+- **variable**: `{kind: "variable", id, name, key, collection_id, collection, type, description?, scopes, remote?, code_syntax?, values}`. `type` is lowercase (`color`, `float`, `string`, `boolean`); `collection` is the collection's name.
+- `values` is keyed by **mode name**. Colours are CSS (`#RRGGBB`, or `rgba(…)` when not opaque), numbers, strings, and booleans are plain, and an alias is `{"alias": "<variable id>"}`: resolve it by finding that `id` in the list.
+
+`--published` lists what the file publishes, with fewer fields (no modes or
+values). On other plans the command fails with `fixable_by: human`
+("Limited by Figma plan"): fall back to `styles list` and the `@styles`
+names in `nodes get`.
 
 ## Comments
 
@@ -115,6 +136,7 @@ agent-figma comments list FAKEFILEKEY0000000000000 --as-md   # message as markdo
 {"created_at":"2026-01-13T09:15:00Z","id":"100001","message":"Should the price row wrap on narrow screens?","node_id":"2:32","order_id":"1","user":"Example Designer"}
 {"created_at":"2026-01-13T10:02:00Z","id":"100002","message":"Yes, let it wrap below 320px.","node_id":"2:32","parent_id":"100001","user":"Example User"}
 {"created_at":"2026-01-14T11:00:00Z","id":"100003","message":"Cover copy is final.","order_id":"2","resolved_at":"2026-01-14T15:30:00Z","user":"Example User"}
+{"@budget":{"cache_hits":0,"calls":{"tier1":0,"tier2":1,"tier3":0},"prefetched":{"nodes":0,"renders":0}}}
 ```
 
 `node_id` is the node the comment is pinned to (absent for canvas comments);
@@ -134,6 +156,7 @@ agent-figma versions list FAKEFILEKEY0000000000000 --limit 2 --cursor 1000000000
 {"created_at":"2026-01-15T10:00:00Z","description":"Adds the card and price row.","id":"1000000000000000001","label":"Checkout v2","user":"Example Designer"}
 {"created_at":"2026-01-14T16:30:00Z","id":"1000000000000000000","user":"Example Designer"}
 {"@pagination":{"has_more":true,"next_cursor":"1000000000000000000"}}
+{"@budget":{"cache_hits":0,"calls":{"tier1":0,"tier2":1,"tier3":0},"prefetched":{"nodes":0,"renders":0}}}
 ```
 
 Pass `next_cursor` back as `--cursor` until `@pagination` stops appearing.
@@ -152,9 +175,11 @@ agent-figma dev-resources list FAKEFILEKEY0000000000000 --node 1:10
 
 ```json
 {"file_key":"FAKEFILEKEY0000000000000","id":"fakedevresource0001","name":"Button in Storybook","node_id":"1:10","url":"https://example.com/storybook/button"}
+{"file_key":"FAKEFILEKEY0000000000000","id":"fakedevresource0002","name":"Checkout spec","node_id":"2:10","url":"https://example.com/docs/checkout"}
+{"@budget":{"cache_hits":0,"calls":{"tier1":0,"tier2":1,"tier3":0},"prefetched":{"nodes":0,"renders":0}}}
 ```
 
-No output and exit 0 means there are none.
+Only the `@budget` line and exit 0 means there are none.
 
 ## Raw API
 

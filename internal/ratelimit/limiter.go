@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/shhac/lib-agent-cli/creds"
@@ -25,7 +26,13 @@ type Limiter struct {
 	MaxWait      time.Duration
 	Now          func() time.Time
 	Sleep        func(context.Context, time.Duration) error
+
+	saw429 atomic.Bool
 }
+
+// Saw429 reports whether this limiter has recorded a 429, so a command can
+// act on what it revealed about the seat and plan.
+func (l *Limiter) Saw429() bool { return l.saw429.Load() }
 
 // RateLimitedError is a request the limiter refused to send, or a 429 Figma
 // returned, that is not worth waiting out.
@@ -142,6 +149,7 @@ func (g Grant) LowSeatTier1() bool {
 
 // Observe429 records what a 429 told us and starts the cooldown.
 func (l *Limiter) Observe429(tier Tier, fileKey string, h http.Header, retryAfter time.Duration) *RateLimitedError {
+	l.saw429.Store(true)
 	rle := &RateLimitedError{
 		Tier:          tier,
 		RetryAfter:    retryAfter,

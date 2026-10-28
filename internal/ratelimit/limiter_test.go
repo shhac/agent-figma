@@ -102,7 +102,7 @@ func TestObserve429StartsSharedCooldown(t *testing.T) {
 	h.Set("X-Figma-Rate-Limit-Type", "low")
 	l.Observe429(Tier1, "K", h, 2*time.Hour)
 
-	other := *l // a second process sharing the state file
+	other := &Limiter{Store: l.Store, Profile: l.Profile, MaxWait: l.MaxWait, Now: l.Now, Sleep: l.Sleep} // a second process sharing the state file
 	_, err := other.Acquire(context.Background(), Tier1, "K")
 	var rle *RateLimitedError
 	if !errors.As(err, &rle) || !rle.Local || rle.RateLimitType != "low" || rle.PlanTier != "org" {

@@ -68,9 +68,9 @@ func revokedSuggestion(profile string, settings config.Profile, err error) []Sug
 
 // adviseAfter folds suggestions into the error that revealed them, or, when
 // this command made a new observation without failing, prints them once.
-func adviseAfter(r *Resolved, observed bool, err error) error {
+func adviseAfter(r *Resolved, err error) error {
 	suggestions := revokedSuggestion(r.Profile, r.Settings, err)
-	if r.Profile != "" && (observed || isRateLimit(err)) {
+	if r.Profile != "" && (r.Client.Limiter.Saw429() || isRateLimit(err)) {
 		suggestions = append(suggestions, Suggestions(r.Profile, r.Settings, r.Client.Limiter.Observe())...)
 	}
 	if len(suggestions) == 0 {

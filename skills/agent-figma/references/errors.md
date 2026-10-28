@@ -37,7 +37,8 @@ Notices: `{"notice","hint"}` on stderr, exit unaffected. Informational
 | `--scale must be between 0.01 and 4` | agent | Fix the value (the hint suggests `--scale 2` for retina rasters, `--as svg` for vectors); svg/pdf ignore scale anyway |
 | `image format must be one of png, jpg, svg, pdf` | agent | The image format goes in `--as`; `--format` is the output format |
 | `--out is not available through the MCP server` | agent | Under MCP, read the manifest `file` reference with the `fs` tool |
-| a JSON parse error (`invalid character …`) with the hint `Fix the JSON in …/.agent-figma/components.json` | agent | The [components mapping](components-to-code.md) is malformed, and every command that reads it (`nodes get`, `handoff`, `components map …`) fails until it is fixed. Repair the file, or point `--components-file` elsewhere |
+| `… is not valid JSON` / `… is not a component mapping` / `… uses mapping format N` (from `components map …`), or the notice `Ignoring the component mapping: …` (from reads) | agent | The [components mapping](components-to-code.md) is broken, not a mapping, or from a newer agent-figma. Reads carry on unmapped; `components map` commands fail until the file is fixed, moved, or `--components-file` points elsewhere |
+| `changing the component mapping is not available through the MCP server` | human | `map add` / `suggest --write` must run in a terminal in the repository |
 | `map add needs --component and one of --set-key, --key, or --name` | agent | Get the key from `components map status <ref>` (`set_key` / `key`) |
 | `Figma server error (5xx)` | retry | Already retried `--max-retries` times; re-run later |
 

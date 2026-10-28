@@ -69,15 +69,15 @@ func Canvas(store *cache.NodeStore, id string, radius float64) ([]Note, Coverage
 			break
 		}
 		stored := store.Nodes[ancestorID]
-		if stored.KnownDepth == 0 {
-			cov.Uncached = append(cov.Uncached, ancestorID)
-		}
 		inSection := ancestor.Type == "SECTION"
 		// Inside a frame or group, siblings are the design itself; notes
-		// sit on the page or in a section.
+		// sit on the page or in a section, so only those are searched.
 		if !inSection && ancestor.Type != "CANVAS" {
 			child = ancestorID
 			continue
+		}
+		if stored.KnownDepth == 0 {
+			cov.Uncached = append(cov.Uncached, ancestorID)
 		}
 		for _, sib := range stored.Children {
 			if sib == child {

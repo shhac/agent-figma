@@ -51,7 +51,7 @@ agent-figma nodes notes FAKEFILEKEY0000000000000 --node 2:10
 
 | `source` | What it is |
 |---|---|
-| `canvas` | visible text and note-like frames (names with sticky, note, annotation, comment, todo) beside the node or its ancestors, within `--radius` px (default 400); `position` is `above`, `below`, `left`, `right`, or `overlapping`, `distance` in px |
+| `canvas` | visible text and note-like frames (names with sticky, note, annotation, comment, todo) on the page beside the node (or its top-level frame), within `--radius` px (default 400); `position` is `above`, `below`, `left`, `right`, or `overlapping`, `distance` in px. Text inside frames is the design, not a note |
 | `section` | text directly inside a `SECTION` containing the node, at any distance (it describes the section's flow) |
 | `comment` | Figma comments pinned to the node or anything inside it: `author`, `created_at`, `resolved`, `replies`. One Tier 2 call, cached; `--no-comments` skips it |
 | `description` | descriptions of the components the subtree uses (keyword lists such as icon search terms are left out) |
@@ -61,16 +61,15 @@ Some notes are designer-to-designer, some are for whoever builds it: read
 them all and weigh them by source. A pinned comment or a sticky note beside
 the frame usually outranks a component description.
 
-Canvas notes need the node's siblings (and its ancestors' siblings) cached.
-When they are not, no Tier 1 call is spent silently; instead:
+Canvas notes need the page's (and any containing section's) children
+cached. When they are not, no Tier 1 call is spent silently; instead:
 
 ```json
-{"@notes_coverage":{"complete":false,"hint":"Notes beside the node may be missing: outline its parent with 'agent-figma file outline <ref> --node 2:10 --depth 1' (one Tier 1 call), then ask again.","uncached":["2:10","2:1"]}}
+{"@notes_coverage":{"complete":false,"hint":"Notes beside the node may be missing: outline its ancestors with 'agent-figma file outline <ref> --node 2:1 --depth 1' (one Tier 1 call), then ask again.","uncached":["2:1"]}}
 ```
 
-Every id in `uncached` needs outlining; do them in one call
-(`file outline <ref> --node 2:10,2:1 --depth 1`) rather than one hint at a
-time. A `file index` or default `file outline` beforehand usually covers
+The hint names every uncached id in one `--node` list, so one call covers
+them. A `file index` or default `file outline` beforehand usually covers
 top-level frames already. `handoff` writes the same records to `notes.json`.
 
 ## "The designer updated the designs — what changed?" — `diff`

@@ -83,7 +83,7 @@ COMPONENTS TO CODE (checked in, shared by everyone in the repo)
   (standalone components), the same for every user, file, and token; name is the fallback for unpublished ones.
   agent-figma components map status <ref> [--node id]         components used, mapped or not, and the file in use
   agent-figma components map add (--set-key K | --key K | --name N) --component Name [--import path]
-      [--prop Figma=code]... [--value Prop.figma=code]... [--ignore Prop]... [--notes text]   replaces any entry
+      [--prop Figma=code]... [--value Prop.figma=code]... [--ignore Prop]... [--notes text]   merges into an existing entry
       with the same key
   agent-figma components map suggest <ref> [--node id] [--src dir] [--write]   match names against exported
       code components (.tsx .ts .jsx .js .vue .svelte); --write adds exact matches only

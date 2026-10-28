@@ -80,9 +80,11 @@ agent-figma components map add --name "Promo banner" --component PromoBanner   #
 | `--ignore Prop` | drop a property code handles itself, such as hover or pressed states (repeatable) |
 | `--notes text` | anything an implementer should know |
 
-It prints `{"entry": {...}, "path": "...", "status": "saved"}`. An entry
-with the same key (or name) is **replaced whole**, not merged: pass every
-flag again when changing one. The file is sorted by name so reviews stay
+It prints `{"entry": {...}, "path": "...", "status": "saved"}`. Adding an
+entry with the same key (or, for keyless entries, the same name) **merges**
+into it: flags you pass win, and earlier props, values, notes, and import are
+kept. Under MCP, `map add` and `suggest --write` are refused: change the
+mapping from a terminal in the repository. The file is sorted by name so reviews stay
 small; editing it by hand is fine:
 
 ```json
@@ -107,8 +109,9 @@ small; editing it by hand is fine:
 Once the file exists, every `@components` entry in `nodes get` (including
 `--view components`), `components map status`, and handoff's
 `components.json` and `tree.ndjson` carries `mapped`, and mapped ones `code`
-and per-variant `code_props` (`file outline` prints `@components` without
-them):
+and per-variant `code_props`, as does `file outline`. A broken mapping file
+does not stop reads: they print a notice and go unmapped, while
+`components map …` commands report the problem:
 
 ```json
 {"@components":[{"set":"Button","component_set_id":"1:10","set_key":"fakecomponentsetkey0000000000000000000110","count":2,"mapped":true,"code":{"component":"Button","import":"@/components/ui/button","notes":"Disabled is the disabled prop, not a variant"},"variants":[{"props":{"Size":"md","State":"Default"},"code_props":{"size":"default"},"count":1,"nodes":["2:11"]},{"props":{"Size":"md","State":"Hover"},"code_props":{"size":"default"},"count":1,"nodes":["2:18"]}]}]}

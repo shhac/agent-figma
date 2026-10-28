@@ -117,10 +117,12 @@ func (s *Session) Render(ctx context.Context, req RenderRequest) (*RenderResult,
 
 func (r RenderRequest) validate() error {
 	if !slices.Contains(Formats, r.Format) {
-		return agenterrors.New("image format must be one of "+strings.Join(Formats, ", "), agenterrors.FixableByAgent)
+		return agenterrors.New("image format must be one of "+strings.Join(Formats, ", "), agenterrors.FixableByAgent).
+			WithHint("Pass it with --as (--format is the output format).")
 	}
 	if r.Scale < 0.01 || r.Scale > 4 {
-		return agenterrors.New("--scale must be between 0.01 and 4", agenterrors.FixableByAgent)
+		return agenterrors.New("--scale must be between 0.01 and 4", agenterrors.FixableByAgent).
+			WithHint("Figma caps renders at 4x and 32 megapixels; use --scale 2 for retina rasters, or --as svg for vectors.")
 	}
 	return nil
 }

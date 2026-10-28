@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -29,16 +30,18 @@ func main() {
 				}
 				return nil
 			}
-			server := &http.Server{
-				Addr:    addr,
-				Handler: mockfigma.New(),
+			// Bind before announcing, so "listening" is never printed for a
+			// port that turns out to be taken.
+			listener, err := net.Listen("tcp", addr)
+			if err != nil {
+				return err
 			}
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 				"status":   "listening",
-				"base_url": "http://" + addr,
+				"base_url": "http://" + listener.Addr().String(),
 				"file_key": mockfigma.FileKey,
 			})
-			return server.ListenAndServe()
+			return (&http.Server{Handler: mockfigma.New()}).Serve(listener)
 		},
 	}
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:12112", "Address to listen on")

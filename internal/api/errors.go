@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	agenterrors "github.com/shhac/lib-agent-output"
@@ -103,9 +104,12 @@ func mapError(status int, raw []byte, path string) error {
 	case status == http.StatusForbidden:
 		e = agenterrors.New("Permission denied: "+msg, agenterrors.FixableByHuman).
 			WithHint("Check the token can open this file in Figma, and that it has the needed scopes ('agent-figma auth check').")
+	case status == http.StatusNotFound && libraryKeyPath.MatchString(path):
+		e = agenterrors.New(notFound(msg), agenterrors.FixableByAgent).
+			WithHint("Check the key with 'agent-figma components|component-sets|styles list <ref>'; keys are not node ids.")
 	case status == http.StatusNotFound:
-		e = agenterrors.New("Not found: "+msg, agenterrors.FixableByAgent).
-			WithHint("Check the file key or node id ('agent-figma resolve <url>'); branch links need the branch key.")
+		e = agenterrors.New(notFound(msg), agenterrors.FixableByAgent).
+			WithHint("Check the file key ('agent-figma resolve <url>') and that the token's account can open the file.")
 	case status == http.StatusBadRequest && strings.Contains(lower, "too large"):
 		e = agenterrors.New("Figma refused the request as too large", agenterrors.FixableByAgent).
 			WithHint("Ask for a narrower subtree with --node, or a smaller --depth.")
@@ -116,6 +120,16 @@ func mapError(status int, raw []byte, path string) error {
 	}
 	e.Cause = cause
 	return e
+}
+
+var libraryKeyPath = regexp.MustCompile(`^/v1/(components|component_sets|styles)/`)
+
+// notFound avoids "Not found: Not found" when Figma's message is just the status text.
+func notFound(msg string) string {
+	if strings.EqualFold(msg, http.StatusText(http.StatusNotFound)) {
+		return "Not found"
+	}
+	return "Not found: " + msg
 }
 
 // limitError turns a refused or exhausted rate limit into the agent-facing

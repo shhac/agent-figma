@@ -60,6 +60,10 @@ func registerFile(root *cobra.Command, globals *shared.GlobalFlags) {
 	root.AddCommand(file)
 }
 
+// outlineDocumentDepth is what a default 'file outline' needs from the
+// document root (pages, then two levels), so 'file index' caches exactly that.
+const outlineDocumentDepth = 3
+
 func registerOutline(parent *cobra.Command, globals *shared.GlobalFlags) {
 	var nodes []string
 	var depth, maxNodes int
@@ -100,7 +104,7 @@ func registerOutline(parent *cobra.Command, globals *shared.GlobalFlags) {
 		},
 	}
 	cmd.Flags().StringArrayVar(&nodes, "node", nil, "Node id(s) to outline (1:2 or 1-2; repeatable, comma-separated)")
-	cmd.Flags().IntVar(&depth, "depth", 2, "Levels below each page or node")
+	cmd.Flags().IntVar(&depth, "depth", outlineDocumentDepth-1, "Levels below each page or node")
 	cmd.Flags().IntVar(&maxNodes, "max-nodes", 400, "Most records to print; the rest are listed in @pagination.next_cursor")
 	parent.AddCommand(cmd)
 }

@@ -48,7 +48,7 @@ Unpublished components appear only once their nodes are cached.`,
 				}
 				var store *cache.NodeStore
 				if !noOutline {
-					if store, err = session.Document(ctx, 2); err != nil {
+					if store, err = session.Document(ctx, outlineDocumentDepth); err != nil {
 						return err
 					}
 				}

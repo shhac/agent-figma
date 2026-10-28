@@ -99,7 +99,8 @@ func (s *Session) answerFromCache(version string, satisfied func(*cache.NodeStor
 			return st, nil
 		}
 	}
-	if s.Opts.Offline || s.servesStale() {
+	// --refresh asks for the current version, so it never settles for an older one.
+	if s.Opts.Offline || (s.servesStale() && !s.Opts.Refresh) {
 		for _, older := range s.File.Versions() {
 			if older == version {
 				continue

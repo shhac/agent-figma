@@ -266,17 +266,32 @@ func TestVersionChangeAndStaleServing(t *testing.T) {
 	if _, ok := srv.BumpVersion(fileKey); !ok {
 		t.Fatal("bump")
 	}
+	// Re-check the version on every command, without --refresh.
+	mustRun(t, "config", "set", "cache_fresh_s", "0")
 	before := srv.Stats().Tier1
 	mustRun(t, "config", "set", "serve_stale", "on")
-	r := mustRun(t, "--refresh", "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	r := mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
 	file, _ := r.meta(t, "@file").(map[string]any)
 	if file["stale"] != true || file["latest_version"] == mockfigma.InitialVersion || srv.Stats().Tier1 != before {
 		t.Fatalf("stale answer expected: %v (tier1 %d→%d)", file, before, srv.Stats().Tier1)
 	}
-	mustRun(t, "config", "set", "serve_stale", "off")
+	// --refresh asks for the current version even when stale answers are on.
 	r = mustRun(t, "--refresh", "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
 	file, _ = r.meta(t, "@file").(map[string]any)
 	if file["stale"] == true || srv.Stats().Tier1 != before+1 {
+		t.Fatalf("--refresh should refetch: %v", file)
+	}
+}
+
+func TestServeStaleOffRefetches(t *testing.T) {
+	srv := mockEnv(t)
+	mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	srv.BumpVersion(fileKey)
+	mustRun(t, "config", "set", "cache_fresh_s", "0")
+	mustRun(t, "config", "set", "serve_stale", "off")
+	before := srv.Stats().Tier1
+	r := mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	if file, _ := r.meta(t, "@file").(map[string]any); file["stale"] == true || srv.Stats().Tier1 != before+1 {
 		t.Fatalf("a fresh fetch expected: %v", file)
 	}
 }

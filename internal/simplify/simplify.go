@@ -330,7 +330,7 @@ func (w *walker) componentInfo(rec *Record, n figma.Node, stored *cache.StoredNo
 		rec.Props = instanceProps(n.ComponentProperties)
 	case "COMPONENT":
 		if parent, ok := w.node(stored.Parent); ok && parent.Type == "COMPONENT_SET" {
-			rec.Props = variantProps(n.Name)
+			rec.Props = VariantProps(n.Name)
 		}
 	case "COMPONENT_SET":
 		rec.Variants = variantOptions(n.ComponentPropertyDefinitions)
@@ -356,8 +356,8 @@ func instanceProps(props map[string]figma.ComponentProperty) map[string]any {
 	return out
 }
 
-// variantProps parses a variant's name ("State=Hover, Size=md").
-func variantProps(name string) map[string]any {
+// VariantProps parses a variant component's name ("State=Hover, Size=md").
+func VariantProps(name string) map[string]any {
 	out := map[string]any{}
 	for _, part := range strings.Split(name, ",") {
 		k, v, ok := strings.Cut(part, "=")

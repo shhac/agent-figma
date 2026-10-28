@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"strings"
+
 	libcli "github.com/shhac/lib-agent-cli/cli"
+	agenterrors "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-figma/internal/cli/auth"
@@ -103,9 +106,10 @@ func RunForTest(version string, args []string) int {
 	root.SetArgs(args)
 	root.SetOut(output.Stdout())
 	root.SetErr(output.Stderr())
-	root.SetIn(emptyReader{})
+	// Commands that read a token from a pipe find nothing, not the test runner's stdin.
+	root.SetIn(strings.NewReader(""))
 	if err := root.Execute(); err != nil {
-		writeError(err)
+		agenterrors.WriteError(output.Stderr(), err)
 		return 1
 	}
 	return 0

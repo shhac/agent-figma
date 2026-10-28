@@ -12,6 +12,7 @@ import (
 	"github.com/shhac/agent-figma/internal/fetch"
 	"github.com/shhac/agent-figma/internal/figma"
 	"github.com/shhac/agent-figma/internal/output"
+	"github.com/shhac/agent-figma/internal/simplify"
 )
 
 func registerIndex(parent *cobra.Command, globals *shared.GlobalFlags) {
@@ -66,7 +67,7 @@ Unpublished components appear only once their nodes are cached.`,
 					if f := c.ContainingFrame; f != nil && f.ContainingComponentSet != nil {
 						setID := f.ContainingComponentSet.NodeID
 						variants[setID] = append(variants[setID], map[string]any{
-							"node_id": c.NodeID, "key": c.Key, "props": variantNameProps(c.Name), "thumbnail_url": c.ThumbnailURL,
+							"node_id": c.NodeID, "key": c.Key, "props": simplify.VariantProps(c.Name), "thumbnail_url": c.ThumbnailURL,
 						})
 						continue
 					}
@@ -148,7 +149,7 @@ func writeLocalComponents(stream *output.Stream, store *cache.NodeStore, publish
 		for cid, c := range store.Components {
 			if c.ComponentSetID == id {
 				known[cid] = true
-				vs = append(vs, map[string]any{"kind": "component", "node_id": cid, "name": c.Name, "props": variantNameProps(c.Name)})
+				vs = append(vs, map[string]any{"kind": "component", "node_id": cid, "name": c.Name, "props": simplify.VariantProps(c.Name)})
 			}
 		}
 		slices.SortFunc(vs, func(a, b map[string]any) int { return strings.Compare(a["node_id"].(string), b["node_id"].(string)) })
@@ -162,17 +163,4 @@ func writeLocalComponents(stream *output.Stream, store *cache.NodeStore, publish
 		}
 		stream.Item(map[string]any{"kind": "component", "node_id": id, "name": c.Name, "published": false})
 	}
-}
-
-func variantNameProps(name string) map[string]string {
-	out := map[string]string{}
-	for _, part := range strings.Split(name, ",") {
-		if k, v, ok := strings.Cut(part, "="); ok {
-			out[strings.TrimSpace(k)] = strings.TrimSpace(v)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }

@@ -58,3 +58,15 @@ func fileFields(rec map[string]any, abs string) {
 		delete(rec, "path")
 	}
 }
+
+// ViaMCPEnv is set for commands run by the MCP server, where writing outside
+// the cache (--out) is refused: the agent reads files through the cache root.
+const ViaMCPEnv = "AGENT_FIGMA_VIA_MCP"
+
+func checkOut(out string) error {
+	if out != "" && os.Getenv(ViaMCPEnv) != "" {
+		return agenterrors.New("--out is not available through the MCP server", agenterrors.FixableByAgent).
+			WithHint("Files are saved in the cache; read them through the MCP fs tool using the manifest path.")
+	}
+	return nil
+}

@@ -113,9 +113,9 @@ func RelatedTo(store *cache.NodeStore, ids []string) []Related {
 }
 
 func variantPropsOf(store *cache.NodeStore, id string) map[string]any {
-	res := simplify.Simplify(store, []string{id}, simplify.Options{View: simplify.ViewAll, MaxDepth: 0})
-	if len(res.Records) == 0 {
+	n, ok := store.Node(id)
+	if !ok || n.Type != "COMPONENT" {
 		return nil
 	}
-	return res.Records[0].Props
+	return simplify.VariantProps(n.Name)
 }

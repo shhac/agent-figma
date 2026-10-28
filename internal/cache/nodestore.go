@@ -285,3 +285,29 @@ func stripChildren(raw json.RawMessage) (json.RawMessage, error) {
 	delete(fields, "children")
 	return json.Marshal(fields)
 }
+
+// WalkVisible visits each visible node in the subtrees under ids once,
+// parents before children; an invisible node hides its subtree.
+func (s *NodeStore) WalkVisible(ids []string, visit func(id string, n figma.Node)) {
+	seen := map[string]bool{}
+	var walk func(id string)
+	walk = func(id string) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		n, ok := s.Node(id)
+		if !ok || !n.IsVisible() {
+			return
+		}
+		visit(id, n)
+		if stored := s.Nodes[id]; stored != nil {
+			for _, c := range stored.Children {
+				walk(c)
+			}
+		}
+	}
+	for _, id := range ids {
+		walk(id)
+	}
+}

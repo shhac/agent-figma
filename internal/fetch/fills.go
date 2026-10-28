@@ -71,17 +71,7 @@ type FillUse struct {
 func FillRefs(store *cache.NodeStore, ids []string) []FillUse {
 	byRef := map[string]*FillUse{}
 	var order []string
-	var walk func(id string)
-	seen := map[string]bool{}
-	walk = func(id string) {
-		if seen[id] {
-			return
-		}
-		seen[id] = true
-		n, ok := store.Node(id)
-		if !ok || !n.IsVisible() {
-			return
-		}
+	store.WalkVisible(ids, func(id string, n figma.Node) {
 		for _, p := range n.Fills {
 			if p.Type != "IMAGE" || p.ImageRef == "" || !p.IsVisible() {
 				continue
@@ -96,15 +86,7 @@ func FillRefs(store *cache.NodeStore, ids []string) []FillUse {
 				u.Nodes = append(u.Nodes, id)
 			}
 		}
-		if stored := store.Nodes[id]; stored != nil {
-			for _, c := range stored.Children {
-				walk(c)
-			}
-		}
-	}
-	for _, id := range ids {
-		walk(id)
-	}
+	})
 	out := make([]FillUse, 0, len(order))
 	for _, ref := range order {
 		out = append(out, *byRef[ref])

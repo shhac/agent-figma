@@ -403,3 +403,26 @@ func TestNodesFind(t *testing.T) {
 		t.Fatalf("find by name: %s", r.stdout)
 	}
 }
+
+func TestExpiredRenderURLIsForgotten(t *testing.T) {
+	srv := mockEnv(t)
+	if err := srv.SetFaults("cdn-expired"); err != nil {
+		t.Fatal(err)
+	}
+	r := mustRun(t, "render", fileKey, "--node", mockfigma.NodeCheckout, "--no-prefetch")
+	un := r.metaAll(t, "@unresolved")
+	if len(un) != 1 || un[0]["fixable_by"] != "retry" {
+		t.Fatalf("expired download should be retryable: %s", r.stdout)
+	}
+	if err := srv.SetFaults(""); err != nil {
+		t.Fatal(err)
+	}
+	before := srv.Stats().ByPath["/v1/images/"+fileKey]
+	r = mustRun(t, "render", fileKey, "--node", mockfigma.NodeCheckout, "--no-prefetch")
+	if srv.Stats().ByPath["/v1/images/"+fileKey] != before+1 {
+		t.Fatal("the dead URL should have been forgotten, forcing a fresh render")
+	}
+	if r.records(t)[mockfigma.NodeCheckout]["downloaded"] != true {
+		t.Fatalf("second render should download: %s", r.stdout)
+	}
+}

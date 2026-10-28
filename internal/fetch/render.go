@@ -4,15 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	agenterrors "github.com/shhac/lib-agent-output"
 
@@ -22,12 +17,8 @@ import (
 
 const (
 	maxRenderExtras = 24
-	// renderURLLife is how long a render URL is trusted: Figma keeps them for
-	// 30 days.
-	renderURLLife = 29 * 24 * time.Hour
 	// maxRenderPixels is Figma's per-render cap; larger extras are skipped.
 	maxRenderPixels = 32_000_000
-	downloadWorkers = 4
 )
 
 var Formats = []string{"png", "jpg", "svg", "pdf"}
@@ -84,14 +75,7 @@ type Image struct {
 	// Downloaded is false when the file was already on disk.
 	Downloaded bool `json:"downloaded"`
 	rel        string
-}
-
-// Unresolved is a requested id that produced no image.
-type Unresolved struct {
-	ID        string `json:"id"`
-	Reason    string `json:"reason"`
-	FixableBy string `json:"fixable_by"`
-	Hint      string `json:"hint,omitempty"`
+	failed     bool
 }
 
 type RenderResult struct {
@@ -102,75 +86,78 @@ type RenderResult struct {
 	Extras []Image
 }
 
-type renderEntry struct {
-	URL       string    `json:"url,omitempty"`
-	Null      bool      `json:"null,omitempty"`
-	FetchedAt time.Time `json:"fetched_at"`
-}
-
-type renderCache struct {
-	Entries map[string]renderEntry `json:"entries"`
-}
-
 // Render renders ids, downloads the images into the cache, and returns where
 // they are. Render URLs are cached per version, so a re-render of the same
 // node, format, and scale costs no API call.
 func (s *Session) Render(ctx context.Context, req RenderRequest) (*RenderResult, error) {
-	if !slices.Contains(Formats, req.Format) {
-		return nil, agenterrors.New("image format must be one of "+strings.Join(Formats, ", "), agenterrors.FixableByAgent)
-	}
-	if req.Scale < 0.01 || req.Scale > 4 {
-		return nil, agenterrors.New("--scale must be between 0.01 and 4", agenterrors.FixableByAgent)
+	if err := req.validate(); err != nil {
+		return nil, err
 	}
 	version, err := s.CurrentVersion(ctx)
 	if err != nil {
 		return nil, err
 	}
 	known := s.knownStore(version)
-	entries := s.loadRenders(version)
-	opt := req.optionKey()
-	now := s.now()
-	usable := func(id string) (renderEntry, bool) {
-		e, ok := entries[id+"|"+opt]
-		return e, ok && now.Sub(e.FetchedAt) < renderURLLife
-	}
-
-	var need []string
-	for _, id := range req.IDs {
-		if _, ok := usable(id); !ok {
-			need = append(need, id)
-		}
-	}
+	view := s.renderView(version, req)
+	need := view.missing(req.IDs)
 	var extras []string
 	if s.prefetching() && len(need) > 0 {
-		extras = s.renderExtras(known, req, need, usable)
+		extras = s.renderExtras(known, req, need, view)
 	}
-	if len(need) > 0 {
-		if s.Opts.Offline {
-			return nil, offlineMiss()
-		}
-		got, err := s.requestRenders(ctx, req, need, extras)
-		if err != nil {
-			return nil, err
-		}
+	if err := s.refreshRenders(ctx, version, req, &view, need, extras); err != nil {
+		return nil, err
+	}
+	result := s.assembleRenders(known, version, req, view, extras)
+	if !req.URLOnly {
+		s.downloadRenders(ctx, version, req, &view, result)
+	}
+	return result, nil
+}
+
+func (r RenderRequest) validate() error {
+	if !slices.Contains(Formats, r.Format) {
+		return agenterrors.New("image format must be one of "+strings.Join(Formats, ", "), agenterrors.FixableByAgent)
+	}
+	if r.Scale < 0.01 || r.Scale > 4 {
+		return agenterrors.New("--scale must be between 0.01 and 4", agenterrors.FixableByAgent)
+	}
+	return nil
+}
+
+// refreshRenders asks Figma for the URLs the cache lacks and records them,
+// nulls included, so a node that renders nothing is not asked about again.
+func (s *Session) refreshRenders(ctx context.Context, version string, req RenderRequest, view *renderView, need, extras []string) error {
+	if len(need) == 0 {
+		s.CacheHits++
+		return nil
+	}
+	if s.Opts.Offline {
+		return offlineMiss()
+	}
+	got, err := s.requestRenders(ctx, req, need, extras)
+	if err != nil {
+		return err
+	}
+	s.updateRenders(version, view, func(m map[string]renderEntry) {
 		for id, url := range got {
-			e := renderEntry{FetchedAt: now}
+			e := renderEntry{FetchedAt: view.now}
 			if url == nil || *url == "" {
 				e.Null = true
 			} else {
 				e.URL = *url
 			}
-			entries[id+"|"+opt] = e
+			m[view.key(id)] = e
 		}
-		s.saveRenders(version, entries)
-	} else {
-		s.CacheHits++
-	}
+	})
+	return nil
+}
 
+// assembleRenders describes the requested images and the speculative extras
+// whose URLs are now cached.
+func (s *Session) assembleRenders(known *cache.NodeStore, version string, req RenderRequest, view renderView, extras []string) *RenderResult {
 	result := &RenderResult{}
-	var downloads []*Image
 	for _, id := range req.IDs {
-		e, ok := usable(id)
+		e, ok := view.usable(id)
 		if !ok || e.Null {
 			result.Unresolved = append(result.Unresolved, Unresolved{
 				ID: id, Reason: "Figma rendered nothing for " + id, FixableBy: string(agenterrors.FixableByAgent),
@@ -178,52 +165,67 @@ func (s *Session) Render(ctx context.Context, req RenderRequest) (*RenderResult,
 			})
 			continue
 		}
-		img := s.describeImage(known, version, id, e.URL, req, req.source())
-		result.Images = append(result.Images, img)
+		result.Images = append(result.Images, s.describeImage(known, version, id, e.URL, req))
 	}
 	for _, id := range extras {
-		e, ok := usable(id)
-		if !ok || e.Null {
-			continue
+		if e, ok := view.usable(id); ok && !e.Null {
+			s.Prefetched.Renders++
+			result.Extras = append(result.Extras, s.describeImage(known, version, id, e.URL, req))
 		}
-		s.Prefetched.Renders++
-		result.Extras = append(result.Extras, s.describeImage(known, version, id, e.URL, req, req.source()))
 	}
-	if req.URLOnly {
-		return result, nil
-	}
+	return result
+}
+
+// downloadRenders saves the requested images (and extras with WithRelated).
+// A failed download usually means an expired URL, so it is forgotten and the
+// next run renders afresh.
+func (s *Session) downloadRenders(ctx context.Context, version string, req RenderRequest, view *renderView, result *RenderResult) {
+	targets := make([]*Image, 0, len(result.Images)+len(result.Extras))
 	for i := range result.Images {
-		downloads = append(downloads, &result.Images[i])
+		targets = append(targets, &result.Images[i])
 	}
 	if req.WithRelated {
 		for i := range result.Extras {
-			downloads = append(downloads, &result.Extras[i])
+			targets = append(targets, &result.Extras[i])
 		}
 	}
-	failed := s.download(ctx, downloads)
-	if len(failed) > 0 {
-		// An expired or revoked URL: forget it so the next run re-renders.
+	s.download(ctx, targets)
+	images, failedImages := keepDownloaded(result.Images)
+	extras, failedExtras := keepDownloaded(result.Extras)
+	result.Images, result.Extras = images, extras
+	for _, id := range failedImages {
+		result.Unresolved = append(result.Unresolved, Unresolved{ID: id, Reason: "downloading the render failed", FixableBy: string(agenterrors.FixableByRetry), Hint: "Run the command again; the render will be requested afresh."})
+	}
+	failed := append(failedImages, failedExtras...)
+	if len(failed) == 0 {
+		return
+	}
+	s.updateRenders(version, view, func(m map[string]renderEntry) {
 		for _, id := range failed {
-			delete(entries, id+"|"+opt)
+			delete(m, view.key(id))
 		}
-		s.saveRenders(version, entries)
-		kept := result.Images[:0]
-		for _, img := range result.Images {
-			if slices.Contains(failed, img.ID) {
-				result.Unresolved = append(result.Unresolved, Unresolved{ID: img.ID, Reason: "downloading the render failed", FixableBy: string(agenterrors.FixableByRetry), Hint: "Run the command again; the render will be requested afresh."})
-				continue
-			}
-			kept = append(kept, img)
+	})
+}
+
+// keepDownloaded splits images into those whose download succeeded (or that
+// were already on disk) and the ids that failed.
+func keepDownloaded(images []Image) ([]Image, []string) {
+	kept := images[:0]
+	var failed []string
+	for _, img := range images {
+		if img.failed {
+			failed = append(failed, img.ID)
+			continue
 		}
-		result.Images = kept
+		kept = append(kept, img)
 	}
-	return result, nil
+	return kept, failed
 }
 
 // renderExtras picks sibling variants (and the variants of a requested
 // component set) at the same format and scale, skipping any whose size would
 // exceed Figma's render cap.
-func (s *Session) renderExtras(known *cache.NodeStore, req RenderRequest, need []string, usable func(string) (renderEntry, bool)) []string {
+func (s *Session) renderExtras(known *cache.NodeStore, req RenderRequest, need []string, view renderView) []string {
 	seen := map[string]bool{}
 	for _, id := range req.IDs {
 		seen[id] = true
@@ -234,7 +236,7 @@ func (s *Session) renderExtras(known *cache.NodeStore, req RenderRequest, need [
 			return
 		}
 		seen[id] = true
-		if _, ok := usable(id); ok {
+		if _, ok := view.usable(id); ok {
 			return
 		}
 		n, ok := known.Node(id)
@@ -323,8 +325,8 @@ func (s *Session) requestRenders(ctx context.Context, req RenderRequest, need, e
 	return got, err
 }
 
-func (s *Session) describeImage(known *cache.NodeStore, version, id, url string, req RenderRequest, source string) Image {
-	img := Image{ID: id, URL: url, Format: req.Format, Scale: req.scale(), Source: source}
+func (s *Session) describeImage(known *cache.NodeStore, version, id, url string, req RenderRequest) Image {
+	img := Image{ID: id, URL: url, Format: req.Format, Scale: req.scale(), Source: req.source()}
 	suffix := ""
 	if req.Suffixes != nil {
 		suffix = req.Suffixes[id]
@@ -351,95 +353,3 @@ func (s *Session) describeImage(known *cache.NodeStore, version, id, url string,
 // RelPath is the image's path relative to its version directory
 // (renders/<page>/<file>), for copying elsewhere with the same layout.
 func (i Image) RelPath() string { return i.rel }
-
-func cacheVersion(version string) string {
-	if version == "" {
-		return "unknown"
-	}
-	return version
-}
-
-func (s *Session) loadRenders(version string) map[string]renderEntry {
-	var rc renderCache
-	_ = s.File.JSONMap(cacheVersion(version), "renders").Load(&rc)
-	if rc.Entries == nil {
-		rc.Entries = map[string]renderEntry{}
-	}
-	return rc.Entries
-}
-
-func (s *Session) saveRenders(version string, entries map[string]renderEntry) {
-	var rc renderCache
-	_ = s.File.JSONMap(cacheVersion(version), "renders").Update(&rc, func() error {
-		if rc.Entries == nil {
-			rc.Entries = map[string]renderEntry{}
-		}
-		for k, v := range entries {
-			rc.Entries[k] = v
-		}
-		return nil
-	})
-}
-
-// download fetches images that are not already on disk, in parallel. The
-// URLs point at Figma's image CDN, so no token is sent. It returns the ids
-// that failed.
-func (s *Session) download(ctx context.Context, images []*Image) []string {
-	var mu sync.Mutex
-	var failed []string
-	sem := make(chan struct{}, downloadWorkers)
-	var wg sync.WaitGroup
-	for _, img := range images {
-		if info, err := os.Stat(img.Path); err == nil && info.Size() > 0 {
-			img.Bytes = info.Size()
-			continue
-		}
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(img *Image) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			n, err := s.fetchToFile(ctx, img.URL, img.Path)
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				failed = append(failed, img.ID)
-				return
-			}
-			img.Bytes, img.Downloaded = n, true
-		}(img)
-	}
-	wg.Wait()
-	return failed
-}
-
-func (s *Session) fetchToFile(ctx context.Context, url, path string) (int64, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, err
-	}
-	resp, err := s.Client.HTTPClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("image download returned HTTP %d", resp.StatusCode)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return 0, err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".download-*")
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	n, err := io.Copy(tmp, resp.Body)
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return 0, err
-	}
-	return n, os.Rename(tmp.Name(), path)
-}

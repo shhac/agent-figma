@@ -94,6 +94,14 @@ func (s *Session) servesStale() bool {
 	return s.lowSeat()
 }
 
+// Unresolved is a requested id that produced no image.
+type Unresolved struct {
+	ID        string `json:"id"`
+	Reason    string `json:"reason"`
+	FixableBy string `json:"fixable_by"`
+	Hint      string `json:"hint,omitempty"`
+}
+
 // Budget is the @budget metadata line.
 func (s *Session) Budget() map[string]any {
 	calls := s.Client.Calls()

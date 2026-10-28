@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 
+	libcli "github.com/shhac/lib-agent-cli/cli"
 	out "github.com/shhac/lib-agent-output"
 
 	// Registers the shared YAML encoder for --format yaml.
@@ -74,16 +75,7 @@ func SetWritersForTest(o, e io.Writer) func() {
 }
 
 // WriteItem prints one record in the requested format.
-func WriteItem(item any, format string) error {
-	f, err := out.ResolveFormat(format, FormatNDJSON)
-	if err != nil {
-		return err
-	}
-	if f == FormatNDJSON {
-		return out.NewNDJSONWriter(Stdout()).WriteItem(item)
-	}
-	return out.Print(Stdout(), item, f, nil)
-}
+func WriteItem(item any, format string) error { return libcli.EmitItem(Stdout(), format, item) }
 
 // WriteList prints records plus single-valued metadata.
 func WriteList(items []any, meta map[string]any, format string) error {

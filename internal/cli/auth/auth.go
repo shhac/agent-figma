@@ -24,9 +24,6 @@ import (
 	"github.com/shhac/agent-figma/internal/ratelimit"
 )
 
-// PromptSecret is a variable so tests can stand in for the native dialog.
-var PromptSecret = promptSecretDialog
-
 const formHint = "Agents should use 'agent-figma auth add <profile> --form' so the token never appears in chat or argv."
 
 func Register(root *cobra.Command, globals *shared.GlobalFlags) {
@@ -82,7 +79,7 @@ func (f *profileFlags) validate(cmd *cobra.Command) error {
 // readToken takes the token from --form, --token, or piped stdin.
 func (f *profileFlags) readToken(cmd *cobra.Command, alias string) (string, error) {
 	if f.form {
-		filled, err := PromptSecret(cmd.Context(), "agent-figma: "+alias, "Figma personal access token", f.token)
+		filled, err := promptSecretDialog(cmd.Context(), "agent-figma: "+alias, "Figma personal access token", f.token)
 		if err != nil {
 			fixableBy, hint := classifyDialogError(err)
 			return "", agenterrors.Wrap(err, fixableBy).WithHint(hint)

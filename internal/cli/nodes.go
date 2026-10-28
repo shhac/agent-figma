@@ -13,6 +13,7 @@ import (
 	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/cli/shared"
 	"github.com/shhac/agent-figma/internal/fetch"
+	"github.com/shhac/agent-figma/internal/figma"
 	"github.com/shhac/agent-figma/internal/output"
 	"github.com/shhac/agent-figma/internal/simplify"
 )
@@ -160,7 +161,7 @@ func rawTree(store *cache.NodeStore, id string, depth int) map[string]any {
 }
 
 func registerNodesFind(parent *cobra.Command, globals *shared.GlobalFlags) {
-	var name, nodeType, page string
+	var q findQuery
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "find <ref>",
@@ -172,7 +173,7 @@ func registerNodesFind(parent *cobra.Command, globals *shared.GlobalFlags) {
 			if err != nil {
 				return err
 			}
-			if name == "" && nodeType == "" && page == "" {
+			if q == (findQuery{}) {
 				return agenterrors.New("nodes find needs --name, --type, or --page", agenterrors.FixableByAgent)
 			}
 			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
@@ -180,64 +181,86 @@ func registerNodesFind(parent *cobra.Command, globals *shared.GlobalFlags) {
 				if err != nil {
 					return err
 				}
+				found := findNodes(store, q, limit)
 				stream, err := shared.FileStream(globals, session)
 				if err != nil {
 					return err
 				}
-				pattern := strings.ToLower(name)
-				matches := 0
-				var incomplete []string
-				for _, id := range sortedKeys(store.Nodes) {
-					stored := store.Nodes[id]
-					n, ok := store.Node(id)
-					if !ok {
-						continue
-					}
-					if stored.KnownDepth == 0 && (n.Type == "FRAME" || n.Type == "SECTION" || n.Type == "COMPONENT_SET" || n.Type == "CANVAS") {
-						incomplete = append(incomplete, id)
-					}
-					if nodeType != "" && !strings.EqualFold(n.Type, nodeType) {
-						continue
-					}
-					if pattern != "" {
-						if ok, _ := path.Match(pattern, strings.ToLower(n.Name)); !ok && !strings.Contains(strings.ToLower(n.Name), pattern) {
-							continue
-						}
-					}
-					pageName := ""
-					if p, ok := store.Node(stored.Page); ok {
-						pageName = p.Name
-					}
-					if page != "" && !strings.EqualFold(pageName, page) {
-						continue
-					}
-					if matches >= limit {
-						matches++
-						continue
-					}
-					matches++
-					rec := map[string]any{"id": id, "type": n.Type, "name": n.Name, "page": pageName, "parent": stored.Parent}
-					if n.AbsoluteBoundingBox != nil {
-						rec["size"] = []float64{n.AbsoluteBoundingBox.Width, n.AbsoluteBoundingBox.Height}
-					}
+				for _, rec := range found.records {
 					stream.Item(rec)
 				}
-				if incomplete == nil {
-					incomplete = []string{}
-				}
-				stream.Meta("@coverage", map[string]any{"searched": len(store.Nodes), "matches": matches, "incomplete": firstN(incomplete, 50)})
-				if matches > limit {
+				stream.Meta("@coverage", map[string]any{"searched": len(store.Nodes), "matches": found.matches, "incomplete": firstN(found.incomplete, 50)})
+				if found.matches > limit {
 					stream.Meta(output.MetaPagination, output.Pagination{HasMore: true})
 				}
 				return shared.Finish(stream, session)
 			})
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "Name glob or substring, case-insensitive (e.g. 'button*')")
-	cmd.Flags().StringVar(&nodeType, "type", "", "Node type, e.g. FRAME, COMPONENT, COMPONENT_SET, INSTANCE, TEXT")
-	cmd.Flags().StringVar(&page, "page", "", "Only nodes on the page with this name")
+	cmd.Flags().StringVar(&q.name, "name", "", "Name glob or substring, case-insensitive (e.g. 'button*')")
+	cmd.Flags().StringVar(&q.nodeType, "type", "", "Node type, e.g. FRAME, COMPONENT, COMPONENT_SET, INSTANCE, TEXT")
+	cmd.Flags().StringVar(&q.page, "page", "", "Only nodes on the page with this name")
 	cmd.Flags().IntVar(&limit, "limit", 100, "Most matches to print")
 	parent.AddCommand(cmd)
+}
+
+type findQuery struct{ name, nodeType, page string }
+
+func (q findQuery) match(n figma.Node, pageName string) bool {
+	if q.nodeType != "" && !strings.EqualFold(n.Type, q.nodeType) {
+		return false
+	}
+	if q.page != "" && !strings.EqualFold(pageName, q.page) {
+		return false
+	}
+	if q.name == "" {
+		return true
+	}
+	pattern, name := strings.ToLower(q.name), strings.ToLower(n.Name)
+	globbed, _ := path.Match(pattern, name)
+	return globbed || strings.Contains(name, pattern)
+}
+
+// containerTypes are the nodes whose uncached contents make a search incomplete.
+var containerTypes = map[string]bool{"CANVAS": true, "FRAME": true, "SECTION": true, "COMPONENT_SET": true}
+
+type findResult struct {
+	records    []map[string]any
+	matches    int
+	incomplete []string
+}
+
+// findNodes searches the store, keeping the first limit matches and counting
+// the rest, and lists containers whose contents are not cached.
+func findNodes(store *cache.NodeStore, q findQuery, limit int) findResult {
+	res := findResult{incomplete: []string{}}
+	for _, id := range sortedKeys(store.Nodes) {
+		stored := store.Nodes[id]
+		n, ok := store.Node(id)
+		if !ok {
+			continue
+		}
+		if stored.KnownDepth == 0 && containerTypes[n.Type] {
+			res.incomplete = append(res.incomplete, id)
+		}
+		pageName := ""
+		if p, ok := store.Node(stored.Page); ok {
+			pageName = p.Name
+		}
+		if !q.match(n, pageName) {
+			continue
+		}
+		res.matches++
+		if res.matches > limit {
+			continue
+		}
+		rec := pruned(map[string]any{"id": id, "type": n.Type, "name": n.Name, "page": pageName, "parent": stored.Parent})
+		if b := n.AbsoluteBoundingBox; b != nil {
+			rec["size"] = []float64{b.Width, b.Height}
+		}
+		res.records = append(res.records, rec)
+	}
+	return res
 }
 
 func firstN(ids []string, n int) []string {

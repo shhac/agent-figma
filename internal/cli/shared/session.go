@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"time"
 
 	agenterrors "github.com/shhac/lib-agent-output"
@@ -57,4 +58,22 @@ func NewSession(r *Resolved, flags *GlobalFlags, ref figmaurl.Ref) *fetch.Sessio
 func Finish(stream *output.Stream, session *fetch.Session) error {
 	stream.Meta(output.MetaBudget, session.Budget())
 	return stream.Close()
+}
+
+// WithSession resolves the client and runs fn with the file session for ref.
+func WithSession(ctx context.Context, flags *GlobalFlags, ref figmaurl.Ref, fn func(context.Context, *fetch.Session) error) error {
+	return WithClient(ctx, flags, func(ctx context.Context, r *Resolved) error {
+		return fn(ctx, NewSession(r, flags, ref))
+	})
+}
+
+// FileStream opens the output stream with the @file line first. Open it after
+// fetching, so a failed fetch prints nothing on stdout.
+func FileStream(flags *GlobalFlags, session *fetch.Session) (*output.Stream, error) {
+	stream, err := output.NewStream(flags.Format)
+	if err != nil {
+		return nil, err
+	}
+	stream.Meta(output.MetaFile, session.FileInfo)
+	return stream, nil
 }

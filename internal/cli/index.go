@@ -30,8 +30,7 @@ Unpublished components appear only once their nodes are cached.`,
 			if err != nil {
 				return err
 			}
-			return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
-				session := shared.NewSession(r, globals, ref)
+			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
 				if _, err := session.CurrentVersion(ctx); err != nil {
 					return err
 				}
@@ -53,11 +52,10 @@ Unpublished components appear only once their nodes are cached.`,
 						return err
 					}
 				}
-				stream, err := output.NewStream(globals.Format)
+				stream, err := shared.FileStream(globals, session)
 				if err != nil {
 					return err
 				}
-				stream.Meta(output.MetaFile, session.FileInfo)
 				if store != nil {
 					writeOutlineEntries(stream, store)
 				}

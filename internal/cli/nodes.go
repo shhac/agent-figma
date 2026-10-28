@@ -51,8 +51,7 @@ set and sibling variants, main components) with what reading them would cost, @p
 			if !slices.Contains(simplify.Views, view) {
 				return agenterrors.New("--view takes "+strings.Join(simplify.Views, ", "), agenterrors.FixableByAgent)
 			}
-			return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
-				session := shared.NewSession(r, globals, ref)
+			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
 				res, err := session.Nodes(ctx, ref.NodeIDs, depth)
 				if err != nil {
 					return err
@@ -76,11 +75,10 @@ set and sibling variants, main components) with what reading them would cost, @p
 
 // writeNodes prints simplified records with the shared metadata lines.
 func writeNodes(globals *shared.GlobalFlags, session *fetch.Session, result simplify.Result, missing []string, related []fetch.Related) error {
-	stream, err := output.NewStream(globals.Format)
+	stream, err := shared.FileStream(globals, session)
 	if err != nil {
 		return err
 	}
-	stream.Meta(output.MetaFile, session.FileInfo)
 	if len(result.Styles) > 0 {
 		stream.Meta(output.MetaStyles, result.Styles)
 	}
@@ -119,11 +117,10 @@ func unresolvedNode(id string) fetch.Unresolved {
 }
 
 func writeRaw(globals *shared.GlobalFlags, session *fetch.Session, res *fetch.NodesResult, ids []string, depth int) error {
-	stream, err := output.NewStream(globals.Format)
+	stream, err := shared.FileStream(globals, session)
 	if err != nil {
 		return err
 	}
-	stream.Meta(output.MetaFile, session.FileInfo)
 	for _, id := range ids {
 		if tree := rawTree(res.Store, id, depth); tree != nil {
 			stream.Item(tree)
@@ -178,17 +175,15 @@ func registerNodesFind(parent *cobra.Command, globals *shared.GlobalFlags) {
 			if name == "" && nodeType == "" && page == "" {
 				return agenterrors.New("nodes find needs --name, --type, or --page", agenterrors.FixableByAgent)
 			}
-			return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
-				session := shared.NewSession(r, globals, ref)
+			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
 				store, err := session.Searchable(ctx)
 				if err != nil {
 					return err
 				}
-				stream, err := output.NewStream(globals.Format)
+				stream, err := shared.FileStream(globals, session)
 				if err != nil {
 					return err
 				}
-				stream.Meta(output.MetaFile, session.FileInfo)
 				pattern := strings.ToLower(name)
 				matches := 0
 				var incomplete []string

@@ -7,6 +7,7 @@ import (
 
 	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/cli/shared"
+	"github.com/shhac/agent-figma/internal/fetch"
 	"github.com/shhac/agent-figma/internal/output"
 	"github.com/shhac/agent-figma/internal/simplify"
 )
@@ -25,8 +26,7 @@ func registerFile(root *cobra.Command, globals *shared.GlobalFlags) {
 			if err != nil {
 				return err
 			}
-			return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
-				session := shared.NewSession(r, globals, ref)
+			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
 				meta, err := session.Meta(ctx)
 				if err != nil {
 					return err
@@ -77,8 +77,7 @@ func registerOutline(parent *cobra.Command, globals *shared.GlobalFlags) {
 			if err != nil {
 				return err
 			}
-			return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
-				session := shared.NewSession(r, globals, ref)
+			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
 				var store *cache.NodeStore
 				var roots []string
 				var missing []string

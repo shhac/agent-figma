@@ -30,8 +30,7 @@ func registerAssets(root *cobra.Command, globals *shared.GlobalFlags) {
 			if err := checkOut(fillOut); err != nil {
 				return err
 			}
-			return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
-				session := shared.NewSession(r, globals, ref)
+			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
 				var uses []fetch.FillUse
 				var missingNodes []string
 				if len(ref.NodeIDs) > 0 {
@@ -51,11 +50,10 @@ func registerAssets(root *cobra.Command, globals *shared.GlobalFlags) {
 					}
 				}
 				downloaded, missing := session.DownloadFills(ctx, uses, urls)
-				stream, err := output.NewStream(globals.Format)
+				stream, err := shared.FileStream(globals, session)
 				if err != nil {
 					return err
 				}
-				stream.Meta(output.MetaFile, session.FileInfo)
 				for _, f := range downloaded {
 					rec := pruned(map[string]any{
 						"image_ref": f.ImageRef, "nodes": f.Nodes, "scale_mode": f.ScaleMode, "format": strings.TrimPrefix(filepath.Ext(f.Path), "."),
@@ -102,17 +100,15 @@ func registerAssets(root *cobra.Command, globals *shared.GlobalFlags) {
 			if err := checkOut(exportOut); err != nil {
 				return err
 			}
-			return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
-				session := shared.NewSession(r, globals, ref)
+			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
 				res, err := session.Nodes(ctx, ref.NodeIDs, cache.Full)
 				if err != nil {
 					return err
 				}
-				stream, err := output.NewStream(globals.Format)
+				stream, err := shared.FileStream(globals, session)
 				if err != nil {
 					return err
 				}
-				stream.Meta(output.MetaFile, session.FileInfo)
 				for _, group := range fetch.ExportGroups(res.Store, ref.NodeIDs) {
 					rendered, err := session.Render(ctx, fetch.RenderRequest{
 						IDs: group.IDs, Format: group.Format, Scale: group.Scale, Suffixes: group.Suffixes,

@@ -51,17 +51,15 @@ are cached, so fetching them later spends no API call. --with-related downloads 
 				ContentsOnly: f.contentsOnly, UseAbsoluteBounds: f.absoluteBounds,
 				WithRelated: f.withRelated, URLOnly: f.urlOnly,
 			}
-			return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
-				session := shared.NewSession(r, globals, ref)
+			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
 				res, err := session.Render(ctx, req)
 				if err != nil {
 					return err
 				}
-				stream, err := output.NewStream(globals.Format)
+				stream, err := shared.FileStream(globals, session)
 				if err != nil {
 					return err
 				}
-				stream.Meta(output.MetaFile, session.FileInfo)
 				if err := writeImages(stream, res.Images, f.out, f.urlOnly); err != nil {
 					return err
 				}

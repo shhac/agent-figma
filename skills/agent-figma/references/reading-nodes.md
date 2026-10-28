@@ -33,6 +33,7 @@ Output order: `@file`, `@styles`, one record per node (depth-first),
 | Field | Meaning |
 |---|---|
 | `id`, `parent`, `depth`, `type`, `name` | `depth` is relative to the requested node (0). Auto-generated names (`Frame 12`) and TEXT layer names are dropped |
+| `label` | the most prominent heading inside a generically named container (see [Labels](#labels)) |
 | `size` | `[w, h]` in px |
 | `pos` | `[x, y]` relative to the parent, only for children outside auto-layout flow |
 | `layout` | flex vocabulary: `mode` (`row\|column\|grid\|none`), `gap`, `padding` (CSS shorthand), `justify`, `align`, `wrap`, `sizing: {h, v}` (`fill\|hug\|fixed`), `position: "absolute"` |
@@ -40,6 +41,7 @@ Output order: `@file`, `@styles`, one record per node (depth-first),
 | `strokes`, `effects`, `radius`, `opacity` | CSS-ish values |
 | `text`, `text_style` | content (bold/italic runs as Markdown, e.g. `Total: **$42.00**`) and `{font, weight, size, line_height, letter_spacing, align}` |
 | `component` | on an INSTANCE: `{id, name, set}` of its main component |
+| `code` | on an INSTANCE, with a [components mapping](components-to-code.md): `{component, import, notes?, props}` |
 | `props` | instance property values, or a variant's props parsed from its name |
 | `export: true` | the designer set export settings; `assets export` renders them |
 | `svg: true` | a vector, or a container drawn only with vector shapes (an icon, logo, illustration): best exported with `render --as svg` |
@@ -89,12 +91,43 @@ output, most used first, with each variant's `props`, `count`, and up to 10
 node ids. Map these onto your codebase's components; `--view components`
 gives just this list, which for a whole page is usually a few KB.
 
-`component`, `props`, and `export` appear only in `all`.
+`component`, `props`, `code`, and `export` appear only in `all`. Each
+`@components` entry also carries the published `set_key` (or `key` for a
+standalone component): the key a [components mapping](components-to-code.md)
+uses. Once `.agent-figma/components.json` exists, entries say `mapped` and,
+when mapped, `code` and per-variant `code_props`.
 
 `--depth N` limits levels below each requested node (`-1`, the default, is
 the whole subtree). `--raw` prints Figma's own node JSON, one line per
 requested node, unchanged (camelCase, absolute boxes); it is cache-first too.
 Use it only when the simplified record lacks a field you need.
+
+### Labels
+
+Real files name building blocks generically: many frames called `Card`,
+wrappers auto-named `Group 12`. A container (`FRAME`, `GROUP`, `SECTION`,
+`COMPONENT`, `COMPONENT_SET`, `INSTANCE`) gets a `label` when its name is
+empty or auto-generated, is a generic word (card, container, content,
+wrapper, frame, group, section, box, item, row, column, stack, body, layout,
+block, ignoring emoji and punctuation), or is shared by three or more nodes
+in the same output. The label is the text of its largest-font visible TEXT
+descendant (the first among equals), cut to 60 characters; no cached text,
+no label.
+
+```json
+{"id":"2:30","parent":"2:10","depth":2,"type":"FRAME","name":"Card","label":"$42.00","size":[327,120],"children":1,"truncated":true}
+{"id":"2:11","parent":"2:10","depth":2,"type":"INSTANCE","name":"Button","label":"Pay now","size":[120,40],"texts":["Pay now"],"instance":true,"children":1}
+```
+
+(From `file outline`: `Card` is a generic word; the instance is labelled
+because the outline prints three nodes named `Button`. In a
+`nodes get --node 2:10`, with only two, it is not.)
+
+Labels appear in node records, `file outline`, `file index` frames, and
+`diff` paths; `nodes find --name` matches them; and render, export, and
+handoff files and folders are named by them (`42-00--2-30@2x.png`). Refer to
+a frame by its label when talking to the user ("the `$42.00` card"), but
+keep using its id in commands.
 
 ### Unresolved ids
 
@@ -128,17 +161,18 @@ agent-figma nodes get FAKEFILEKEY0000000000000 --node 2:10 --max-nodes 4 --view 
 
 ```json
 {"id":"2:10","parent":"2:1","depth":0,"type":"FRAME","name":"Checkout","size":[375,940],"children":8,"truncated":true}
-{"id":"2:11","parent":"2:10","depth":1,"type":"INSTANCE","name":"Button","size":[120,40],"children":1,"truncated":true}
-{"id":"2:12","parent":"2:10","depth":1,"type":"TEXT","size":[327,24]}
+{"id":"2:11","parent":"2:10","depth":1,"type":"INSTANCE","name":"Button","size":[120,40],"texts":["Pay now"],"instance":true,"children":1}
+{"id":"2:12","parent":"2:10","depth":1,"type":"TEXT","size":[327,24],"text":"Total: $42.00"}
 {"id":"2:13","parent":"2:10","depth":1,"type":"RECTANGLE","name":"Hero image","size":[327,180]}
-{"@pagination":{"has_more":true,"next_cursor":"2:14,2:15,2:17,2:18,2:30,I2:11;1:14"}}
+{"@pagination":{"has_more":true,"next_cursor":"2:14,2:15,2:17,2:18,2:30"}}
 ```
 
-To continue, pass `next_cursor` back as `--node`, **quoted** (instance ids
-contain `;`), with the same flags:
+To continue, pass `next_cursor` back as `--node`, **quoted** (with
+`--expand-instances` it also lists instance children such as `I2:11;1:14`,
+and `;` breaks the shell), with the same flags:
 
 ```bash
-agent-figma nodes get FAKEFILEKEY0000000000000 --node '2:14,2:15,2:17,2:18,2:30,I2:11;1:14' --max-nodes 4 --view structure
+agent-figma nodes get FAKEFILEKEY0000000000000 --node '2:14,2:15,2:17,2:18,2:30' --max-nodes 4 --view structure
 ```
 
 Each page prints the next records (depth restarts at 0 for each listed
@@ -176,10 +210,15 @@ agent-figma file outline FAKEFILEKEY0000000000000 --node 2:30 --depth 3
 ```
 
 ```json
-{"id":"2:1","parent":"0:0","depth":0,"type":"CANVAS","name":"Screens","children":1}
+{"@components":[{"set":"Button","component_set_id":"1:10","set_key":"fakecomponentsetkey0000000000000000000110","count":2,"variants":[...]}]}
+{"id":"2:1","parent":"0:0","depth":0,"type":"CANVAS","name":"Screens","children":5}
 {"id":"2:10","parent":"2:1","depth":1,"type":"FRAME","name":"Checkout","size":[375,940],"children":8}
-{"id":"2:11","parent":"2:10","depth":2,"type":"INSTANCE","name":"Button","size":[120,40],"truncated":true}
+{"id":"2:11","parent":"2:10","depth":2,"type":"INSTANCE","name":"Button","label":"Pay now","size":[120,40],"texts":["Pay now"],"instance":true,"children":1}
+{"id":"2:30","parent":"2:10","depth":2,"type":"FRAME","name":"Card","label":"$42.00","size":[327,120],"children":1,"truncated":true}
 ```
+
+Instances are folded leaves here too, and `@components` summarises what the
+outline covers.
 
 `file index` caches the depth a default `file outline` prints, so
 `file index` then `file outline` costs one Tier 1 call between them. A
@@ -195,6 +234,7 @@ unless nothing at all is cached (then it fetches the page/frame outline once).
 ```bash
 agent-figma nodes find FAKEFILEKEY0000000000000 --name 'button*'
 agent-figma nodes find FAKEFILEKEY0000000000000 --type TEXT --page Screens
+agent-figma nodes find FAKEFILEKEY0000000000000 --name '42'   # matches the Card labelled "$42.00" too
 ```
 
 ```json
@@ -211,7 +251,8 @@ With less cached, `incomplete` names the frames still to deepen:
 ```
 
 `--name` is a case-insensitive glob or substring matched against layer
-names (TEXT layers included, though `nodes get` hides their names); `--type` is a Figma node type (`FRAME`, `COMPONENT`, `COMPONENT_SET`,
+names (TEXT layers included, though `nodes get` hides their names) and
+labels (a matched record carries `label`); `--type` is a Figma node type (`FRAME`, `COMPONENT`, `COMPONENT_SET`,
 `INSTANCE`, `TEXT`, …); `--limit` defaults to 100.
 
 `@coverage` says how much was searched. `incomplete` (`[]` when the

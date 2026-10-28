@@ -43,7 +43,16 @@ The effective seat class is the declaration, else the observation, else
 `high`. The effective plan for a file is the observation for that file, else
 the declaration, else `pro`. `auth check` and `auth list` show
 `declared_seat`, `declared_plan`, `effective_seat_class`,
-`observed_rate_limit_type`, `tier1_calls_this_month`, and active `cooldowns`.
+`observed_rate_limit_type`, `observed_plan`, `tier1_calls_this_month`, and
+active `cooldowns`.
+
+Because the declaration wins, a wrong one is costly: a profile declared
+`--seat full` that is really a View seat spends its monthly Tier 1 allowance
+as if it were per-minute. When a 429 contradicts a declaration, the CLI
+says so with the exact `agent-figma auth update <profile> ...` command (in
+the error hint, a stderr notice, and `suggestions` in `auth check` /
+`auth list`), and never changes the profile itself. Pass the command on to
+the user. See [setup-and-auth.md](setup-and-auth.md#settings-nudges-suggestions).
 
 If the user mentions a View/Collab seat, suggest they declare it
 (`auth update <profile> --seat view`), so the CLI is careful from the first

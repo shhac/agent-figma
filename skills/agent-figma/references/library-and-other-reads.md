@@ -63,6 +63,10 @@ Records have a `kind`:
 {"@budget":{"cache_hits":0,"calls":{"tier1":1,"tier2":0,"tier3":4},"prefetched":{"nodes":0,"renders":0}}}
 ```
 
+Frames with a generic name (`Container`, `Card`, an auto-name) carry a
+[`label`](reading-nodes.md#labels), the text of their most prominent heading,
+e.g. `{"children":2,"id":"8:1","kind":"frame","label":"Order summary","name":"Container",…}`.
+
 The outline it caches is the depth a default `file outline` prints, so
 `file outline` straight after `file index` is free.
 
@@ -141,7 +145,10 @@ agent-figma comments list FAKEFILEKEY0000000000000 --as-md   # message as markdo
 
 `node_id` is the node the comment is pinned to (absent for canvas comments);
 `parent_id` marks a reply; `resolved_at` a resolved thread. Read-only:
-posting comments is not supported.
+posting comments is not supported. For the comments on one frame (pinned to
+it or anything inside it, replies nested), alongside sticky notes and other
+designer notes around it, use `nodes notes <ref> --node <id>`
+([building-and-verifying.md](building-and-verifying.md#anything-the-designer-said-about-this--nodes-notes)).
 
 ## Versions
 

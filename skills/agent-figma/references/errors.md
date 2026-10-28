@@ -25,7 +25,7 @@ Notices: `{"notice","hint"}` on stderr, exit unaffected. Informational
 |---|---|---|
 | `Figma tier1 rate limit reached; retry in …` with "low (Collab/View seat)" in the hint | human | Monthly Tier 1 allowance spent. Stop Tier 1 commands, use `--offline` for cached data, prefer `file index` / library lists, tell the user |
 | `Figma tierN rate limit reached; retry in …` | retry | Wait `retry_after_seconds`. "No request was sent" in the hint means another process's cooldown; same advice |
-| `Figma rejected the token: Invalid token` | human | Token wrong or expired. User makes a new one and runs `agent-figma auth update <profile> --form` |
+| `Figma rejected the token: Invalid token` | human | Token wrong or expired. User makes a new one and runs `agent-figma auth update <profile> --form`. If the profile's recorded expiry has not passed, the hint ends with the exact `auth update <profile> --form --expires YYYY-MM-DD` (revoked, or the date is wrong) |
 | `The token is missing a scope for this request` | human | User regenerates the token with the scope named; `agent-figma usage` lists the recommended ones |
 | `Figma limits this endpoint by plan or seat` | human | Variables are Enterprise-only. Use `styles list` and `@styles` names instead |
 | `Permission denied` | human | The token's user cannot open this file; ask the user to check sharing |
@@ -37,6 +37,8 @@ Notices: `{"notice","hint"}` on stderr, exit unaffected. Informational
 | `--scale must be between 0.01 and 4` | agent | Fix the value (the hint suggests `--scale 2` for retina rasters, `--as svg` for vectors); svg/pdf ignore scale anyway |
 | `image format must be one of png, jpg, svg, pdf` | agent | The image format goes in `--as`; `--format` is the output format |
 | `--out is not available through the MCP server` | agent | Under MCP, read the manifest `file` reference with the `fs` tool |
+| a JSON parse error (`invalid character …`) with the hint `Fix the JSON in …/.agent-figma/components.json` | agent | The [components mapping](components-to-code.md) is malformed, and every command that reads it (`nodes get`, `handoff`, `components map …`) fails until it is fixed. Repair the file, or point `--components-file` elsewhere |
+| `map add needs --component and one of --set-key, --key, or --name` | agent | Get the key from `components map status <ref>` (`set_key` / `key`) |
 | `Figma server error (5xx)` | retry | Already retried `--max-retries` times; re-run later |
 
 ## Example: low-seat 429
@@ -48,10 +50,21 @@ Notices: `{"notice","hint"}` on stderr, exit unaffected. Informational
 After this, `serve_stale: auto` treats the profile as a low seat: commands
 answer from an older cached version when they can (`@file.stale: true`).
 
+When the 429 contradicts the profile's declarations, the hint ends with the
+fix (one sentence per [settings nudge](setup-and-auth.md#settings-nudges-suggestions)):
+
+```json
+{"error":"Figma tier1 rate limit reached; retry in 2h0m0s","fixable_by":"human","hint":"Figma reports a low (Collab/View seat) limit: … Data already cached for this file can still be read with --offline. Figma reports a Collab/View seat's limits, but the profile declares --seat full; run: agent-figma auth update work --seat view Figma reports the org plan, and the profile declares none; run: agent-figma auth update work --plan org","retry_after_seconds":7200}
+```
+
+Tell the user both the limit and the command; `auth check` lists the same
+commands under `suggestions`.
+
 ## Notices worth passing on
 
 | Notice | Meaning |
 |---|---|
+| `Figma reports a Collab/View seat's limits, but the profile declares --seat …` / `Figma reports the <plan> plan, …` (hint `Run: agent-figma auth update …`) | The profile's declaration is wrong. Relay the command to the user; it is never applied automatically |
 | `The token for profile "x" expires in N day(s)` / `expired on …` | User should rotate it: `auth update x --form --expires YYYY-MM-DD` |
 | `Spent a Tier 1 call on a monthly-limited budget (N this month …)` | Low seat or Starter file; keep Tier 1 calls to a minimum |
 | `Figma refused the full subtree of … as too large; showing a depth-limited tree` | The CLI fell back to depth 4, 2, or 1 (up to three extra Tier 1 calls). Records marked `truncated` are listed in `@pagination.next_cursor`; pass it back as `--node` to fetch them |

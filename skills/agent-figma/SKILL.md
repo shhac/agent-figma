@@ -8,8 +8,10 @@ description: |
   variables, comments, versions, and dev resources. Use when asked to look at
   a Figma link or frame, inspect a design's layout, spacing, colours, or
   typography, export or screenshot a node, list a file's components or
-  variants, or read comments on a design. Triggers: figma.com/design,
-  node-id, Figma 429, rate limit exceeded.
+  variants, read comments or designer notes on a design, build a screen from
+  a design, map design-system components to code components, see what
+  changed in a design, or check an implementation against it. Triggers:
+  figma.com/design, node-id, Figma 429, rate limit exceeded.
 allowed-tools: Bash(agent-figma *) Read
 ---
 
@@ -35,7 +37,14 @@ Personal access tokens, read-only scopes) and runs
 `agent-figma auth add <profile> --form --expires YYYY-MM-DD [--seat full|dev|collab|view]`,
 which opens a native dialog so the token never passes through chat. Never ask
 for a token in the conversation or pass one on the command line yourself.
-`agent-figma auth check` confirms who you are and what budget applies. Detail:
+`agent-figma auth check` confirms who you are and what budget applies.
+
+When Figma contradicts a profile's settings (a 429 reports a Collab/View seat
+on a profile declared `--seat full`, a plan other than `--plan`, or a token is
+rejected before its recorded expiry), the error hint, a stderr notice, and
+`auth check` / `auth list` `suggestions: [{reason, command}]` carry the exact
+`agent-figma auth update <profile> ...` command. Nothing is changed
+automatically: pass the command to the user to run. Detail:
 [references/setup-and-auth.md](references/setup-and-auth.md).
 
 ## Output contract
@@ -44,12 +53,13 @@ for a token in the conversation or pass one on the command line yourself.
 |---|---|
 | `@file` | `{key, name, version, last_modified, editor_type}`; `stale: true` + `latest_version` when answered from an older cached version |
 | `@styles` | shared style table: records reference ids like `fill_972ecd24`, `text_75082aa8` |
-| `@components` | design-system components and variants used, with counts and node ids (instances are folded leaves; `--expand-instances` to see inside) |
-| records | one per node, depth-first (`id, parent, depth, type, name, size, layout, fills, text, svg?, …`), or one per downloaded file (a manifest line). Empty fields are left out |
+| `@components` | design-system components and variants used, with `set_key`/`key`, counts, and node ids (instances are folded leaves; `--expand-instances` to see inside). With a [components mapping](references/components-to-code.md): `mapped`, `code {component, import}`, and per-variant `code_props` |
+| records | one per node, depth-first (`id, parent, depth, type, name, label?, size, layout, fills, text, svg?, …`), or one per downloaded file (a manifest line). Empty fields are left out. `label` is the most prominent heading inside a generically named container (`Card`, `Group 12`, …): use it to tell look-alike frames apart |
 | `@unresolved` | `{id, reason, fixable_by, hint}` for an id Figma does not have or rendered as nothing; exit stays 0, and the miss is remembered for that file version |
 | `@related` | `{rel, id, of, name, type, props?, render?, cost}`: nearby nodes you may want next |
 | `@pagination` | `{has_more, next_cursor}`: more records were cut. For `nodes get` / `file outline`, pass `next_cursor` back as `--node` (quoted) to continue; for `versions list`, as `--cursor` |
 | `@coverage` | `nodes find` only: `{matches, searched, incomplete}` |
+| `@notes_coverage` | `nodes notes` only: `{complete: false, uncached, hint}` when canvas notes may be missing; the hint names the `file outline` call that fills the gap |
 | `@budget` | `{calls: {tier1, tier2, tier3}, cache_hits, prefetched}`: what this command spent; every read of a file `<ref>` ends with it (`resolve` and library `get <key>` do not) |
 
 `cost` on `@related` says what fetching it spends: `cached` (free, already
@@ -88,6 +98,7 @@ agent-figma nodes get FAKEFILEKEY0000000000000 --node 2:30 --view layout   # nar
 agent-figma nodes find FAKEFILEKEY0000000000000 --name 'button*'           # search the cache, no Tier 1
 agent-figma render FAKEFILEKEY0000000000000 --node 2:30  # png @2x into the cache; Read the manifest path
 agent-figma assets fills FAKEFILEKEY0000000000000 --node 2:10   # image fills used under a frame
+agent-figma nodes notes FAKEFILEKEY0000000000000 --node 2:10    # notes and comments designers left around it
 ```
 
 Read the node record before rendering: layout, colour, and text questions are
@@ -97,27 +108,31 @@ see it; records with `"svg": true` are icons and illustrations best rendered
 (`agent-figma mcp`) read the `file` reference with the `fs` tool instead
 (`fs get cache <file.path>`).
 
-## The three common jobs
+## Common jobs
 
 | Task | Command |
 |---|---|
-| Build a screen or component | `agent-figma handoff <ref> --node <id> --out ./design/<name>` — one folder: screenshot, tree, components, styles, icons, images |
+| Build a screen or component | `agent-figma handoff <ref> --node <id> --out ./design/<name>` — one folder: screenshot, tree, components, styles, icons, images, designer notes |
+| "Which of our components is that?" | `agent-figma components map status <ref> --node <id>`, then `components map suggest` / `map add` — a checked-in `.agent-figma/components.json` that makes `@components` and instances name the code component, import, and props |
+| "Anything the designer said about this?" | `agent-figma nodes notes <ref> --node <id>` — sticky notes and text beside it, section text, pinned comments, component descriptions, annotations |
 | "The designs changed — what's different?" | `agent-figma diff <ref> --node <id>` — per-field changes since the last cached version (`--render` for before/after) |
 | "Does my implementation match?" | screenshot the component, then `agent-figma compare <ref> --node <id> --image shot.png` — match %, differing regions named by design node, diff image |
 
-Details and examples: [references/building-and-verifying.md](references/building-and-verifying.md).
+Details and examples: [references/building-and-verifying.md](references/building-and-verifying.md)
+and [references/components-to-code.md](references/components-to-code.md).
 
 ## Router
 
 | Need | Read |
 |---|---|
 | Every command and flag at a glance | [references/commands.md](references/commands.md) |
-| Profiles, tokens, scopes, seat/plan declarations, expiry | [references/setup-and-auth.md](references/setup-and-auth.md) |
-| Node record fields, `svg`, `--view`, `--raw`, `--max-nodes` paging, too-large subtrees, `nodes find` + `@coverage` | [references/reading-nodes.md](references/reading-nodes.md) |
+| Profiles, tokens, scopes, seat/plan declarations, expiry, `suggestions` (settings nudges) | [references/setup-and-auth.md](references/setup-and-auth.md) |
+| Node record fields, `label`, `svg`, `--view`, `--raw`, `--max-nodes` paging, too-large subtrees, `nodes find` + `@coverage` | [references/reading-nodes.md](references/reading-nodes.md) |
 | `render` flags and scale rules, `--with-related`, `--url-only`, `--out`, `assets fills/export`, manifest fields | [references/rendering-and-assets.md](references/rendering-and-assets.md) |
 | `file index`, components / component sets / styles, variables, comments, versions, dev resources, branch links | [references/library-and-other-reads.md](references/library-and-other-reads.md) |
 | Tiers, seats and plans, cooldowns, stale answers, `--refresh` / `--offline`, cache, prefetch, config keys | [references/rate-limits-and-cache.md](references/rate-limits-and-cache.md) |
-| `handoff`, `diff`, `compare`: building, tracking design changes, verifying an implementation | [references/building-and-verifying.md](references/building-and-verifying.md) |
+| `handoff`, `nodes notes`, `diff`, `compare`: building, designer notes, tracking design changes, verifying an implementation | [references/building-and-verifying.md](references/building-and-verifying.md) |
+| `.agent-figma/components.json`, `components map status/add/suggest`, `code` / `code_props` in output | [references/components-to-code.md](references/components-to-code.md) |
 | An error or notice and what to do about it | [references/errors.md](references/errors.md) |
 
 `agent-figma usage` prints the built-in reference card; `agent-figma <cmd> --help`

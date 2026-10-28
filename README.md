@@ -11,12 +11,16 @@ Agents are increasingly asked to "look at this Figma link" — to build a screen
 - **Link-first**: pass any figma.com link (`/design/`, `/file/`, `/proto/`, `/board/`, branch links) or a bare file key; `node-id` in the link becomes the target node. `resolve` parses links with no API call.
 - **LLM-shaped nodes**: one NDJSON record per node with layout as flex vocabulary (`mode`, `gap`, `padding`, `sizing`), CSS-ish paints, text with its style, instance props and variant props; auto-generated names, hidden layers, and vector noise are dropped (icons and illustrations become one leaf marked `"svg": true`, keeping their Figma type); repeated values move into a shared `@styles` table. `--view structure|layout|text|visuals` narrows further; `--raw` gives Figma's JSON.
 - **Budget-aware by design**: a per-profile, per-version node cache that every Tier 1 response is merged into; batching; prefetch of sibling variants into the same call; shared cooldowns across parallel processes; stale answers for low seats when a file is mid-edit; unknown node ids remembered per version; `--offline` and `--refresh`. Every file read ends with an `@budget` line saying what it spent.
-- **Build, track changes, verify**: `handoff` writes one folder to build a screen from (screenshot, simplified tree, the design-system components and variants used, styles, icons as SVG once per component, image fills) in at most three Tier 1 calls; `diff` says what changed between two versions of a subtree, per field and grouped by frame, usually for one call; `compare` takes a screenshot of your implementation and reports where it differs from the design, region by region, each attributed to the design node under it, with a diff image.
+- **Build, track changes, verify**: `handoff` writes one folder to build a screen from (screenshot, simplified tree, the design-system components and variants used, styles, icons as SVG once per component, image fills, designer notes) in at most three Tier 1 calls and two Tier 2; `diff` says what changed between two versions of a subtree, per field and grouped by frame, usually for one call; `compare` takes a screenshot of your implementation and reports where it differs from the design, region by region, each attributed to the design node under it, with a diff image.
 - **Design-system aware**: component instances are single records (component, variant props, texts) and `@components` summarises which components and variants a screen uses, so building maps onto your codebase's components rather than onto drawn rectangles.
+- **Components mapped to code**: a checked-in `.agent-figma/components.json`, keyed by Figma's published component keys (the same for every user and token), says which code component, import, and props each design-system component is. Once it exists, `@components`, instance records, and `handoff` carry the code component; `components map suggest` proposes entries from your source tree and `components map add` writes them.
+- **Designer notes**: `nodes notes` gathers what designers left around a frame — sticky notes and loose text beside it, section descriptions, pinned comments with replies, component descriptions, Dev Mode annotations — each labelled by source.
+- **Readable names for generic frames**: containers named `Card`, `Container`, `Group 12`, or a name many siblings share get a `label` from their most prominent heading, used in records, outlines, search, diff paths, and the names of rendered files.
 - **Related things up front**: `@related` lines list ancestors, the page, the component set, sibling variants, and main components, each with what reading it would cost (`cached`, `download`, or `tier1`).
 - **Renders and assets on disk**: `render` (png/jpg/svg/pdf), `assets fills` (image fills), and `assets export` (designer export settings) save human-named files and print a manifest line per file.
 - **Library and file reads**: `file index` catalogue (pages, frames, component sets with variants and thumbnails, styles), components, component sets, styles, variables (Enterprise; values per mode name, colours as CSS, aliases as `{"alias": id}`), comments, versions, dev resources, plus a GET-only `api get` escape hatch.
 - **Structured errors**: JSON on stderr with `fixable_by` (`agent` | `human` | `retry`), a `hint`, and `retry_after_seconds` for rate limits — including whether a seat change, not waiting, is what would help.
+- **Settings nudges**: when Figma's 429s reveal a seat or plan that contradicts a profile's `--seat`/`--plan`, or a token is rejected before its recorded expiry, the error, a notice, and `auth check`/`auth list` name the exact `agent-figma auth update <profile> …` command. Profiles are never changed behind your back.
 - **Keychain-first credentials**: tokens are entered through a native dialog (`--form`), stored in the OS keychain, and never printed, logged, or echoed in errors.
 - **MCP server**: `agent-figma mcp` exposes the read commands as MCP tools, with a read-only `fs` tool for the downloaded images.
 
@@ -79,6 +83,21 @@ agent-figma render FAKEFILEKEY0000000000000 --node 2:17 --as svg --out ./exports
 agent-figma assets fills FAKEFILEKEY0000000000000 --node 2:10
 agent-figma assets export FAKEFILEKEY0000000000000 --node 2:10
 
+# Build from a frame: one folder with screenshot, tree, components, styles, icons, images, notes
+agent-figma handoff FAKEFILEKEY0000000000000 --node 2:10 --out ./design/checkout
+
+# Notes and comments designers left around a frame
+agent-figma nodes notes FAKEFILEKEY0000000000000 --node 2:10
+
+# Map design-system components to your code components (writes .agent-figma/components.json)
+agent-figma components map status FAKEFILEKEY0000000000000 --node 2:10
+agent-figma components map suggest FAKEFILEKEY0000000000000 --node 2:10
+agent-figma components map add --set-key fakecomponentsetkey0000000000000000000110 --component Button --import @/components/ui/button --prop Size=size
+
+# What changed since the last read; does a screenshot match
+agent-figma diff FAKEFILEKEY0000000000000 --node 2:10
+agent-figma compare FAKEFILEKEY0000000000000 --node 2:30 --image card.png
+
 # Library, comments, history
 agent-figma components list FAKEFILEKEY0000000000000
 agent-figma comments list FAKEFILEKEY0000000000000
@@ -89,10 +108,10 @@ agent-figma cache status
 agent-figma nodes get FAKEFILEKEY0000000000000 --node 2:30 --offline
 ```
 
-A node record:
+A node record (`label` because `Card` is a generic name):
 
 ```json
-{"id":"2:30","parent":"2:10","depth":0,"type":"FRAME","name":"Card","size":[327,120],"layout":{"align":"center","gap":"12px","mode":"row","padding":"16px"},"fills":"#FFFFFF","strokes":{"paint":"#E2E4E8","weight":"1px"},"effects":"effect_e3838271","radius":12,"children":1}
+{"id":"2:30","parent":"2:10","depth":0,"type":"FRAME","name":"Card","label":"$42.00","size":[327,120],"layout":{"align":"center","gap":"12px","mode":"row","padding":"16px"},"fills":"#FFFFFF","strokes":{"paint":"#E2E4E8","weight":"1px"},"effects":"effect_e3838271","radius":12,"children":1}
 ```
 
 The trailing budget line:
@@ -103,13 +122,13 @@ The trailing budget line:
 
 ## Output
 
-NDJSON on stdout: records, then `@`-prefixed meta lines (`@file`, `@styles`, `@unresolved`, `@related`, `@pagination`, `@coverage`, `@budget`). Empty fields are left out. Large subtrees page with `--max-nodes`: pass `@pagination.next_cursor` back as `--node` to continue from the cache. `--format json|yaml` wraps the same output in one object. Errors are a single JSON object on stderr with a non-zero exit:
+NDJSON on stdout: records, then `@`-prefixed meta lines (`@file`, `@styles`, `@components`, `@unresolved`, `@related`, `@pagination`, `@coverage`, `@notes_coverage`, `@budget`). Empty fields are left out. Large subtrees page with `--max-nodes`: pass `@pagination.next_cursor` back as `--node` to continue from the cache. `--format json|yaml` wraps the same output in one object. Errors are a single JSON object on stderr with a non-zero exit:
 
 ```json
 {"error":"Figma rejected the token: Invalid token","fixable_by":"human","hint":"The token is invalid or expired. Generate a new one in Figma (Settings > Security > Personal access tokens) and run 'agent-figma auth update <profile> --form'."}
 ```
 
-Profile metadata is in `$XDG_CONFIG_HOME/agent-figma/config.json`, the cache in `$XDG_CACHE_HOME/agent-figma/`, and rate-limit state (shared between processes) in `$XDG_STATE_HOME/agent-figma/`.
+Profile metadata is in `$XDG_CONFIG_HOME/agent-figma/config.json`, the cache in `$XDG_CACHE_HOME/agent-figma/`, and rate-limit state (shared between processes) in `$XDG_STATE_HOME/agent-figma/`. The component-to-code mapping is per repository, in `<repo-root>/.agent-figma/components.json` (found by walking up from the working directory; `--components-file` or `AGENT_FIGMA_COMPONENTS` override); commit it.
 
 ## MCP
 

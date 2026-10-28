@@ -69,7 +69,11 @@ agent-figma render FAKEFILEKEY0000000000000 --node 1:11 --with-related   # 1:11 
 ### Names and paths
 
 Files are named for humans when the node is cached:
-`renders/<page-slug>/<node-slug>--<node-id>[@<scale>x].<ext>` (no suffix at scale 1). A node not in the
+`renders/<page-slug>/<node-slug>--<node-id>[@<scale>x].<ext>` (no suffix at scale 1).
+`<node-slug>` is the node's [label](reading-nodes.md#labels) when its name is
+generic, else its name: the frame named `Card` whose heading is `$42.00`
+renders to `renders/screens/42-00--2-30@2x.png`, and its manifest line
+carries `"label":"$42.00"` beside `"name":"Card"`. A node not in the
 node cache is saved as `renders/<node-id>[@<scale>x].<ext>` (`2-30@2x.png`)
 and its manifest has no `name` or `page`, rather than spending a Tier 1 call
 to name it.
@@ -91,6 +95,7 @@ Empty fields are left out of manifest lines.
 | Field | Meaning |
 |---|---|
 | `id`, `name`, `page` | the node (`name`/`page` absent if it was not cached) |
+| `label` | the node's label, when its name is generic |
 | `format` | `png`, `jpg`, `svg`, `pdf`; for fills, the image's type (`png`, `jpg`, `gif`, …) |
 | `scale` | what was rendered (`render`, `export`) |
 | `source` | `render`, `export`, or `fill` |
@@ -115,7 +120,7 @@ An MCP client has no filesystem, so the server drops `path` and you read the
 verbatim:
 
 ```text
-fs get  cache work/FAKEFILEKEY0000000000000/v-1000000000000000001/renders/screens/card--2-30@2x.png
+fs get  cache work/FAKEFILEKEY0000000000000/v-1000000000000000001/renders/screens/42-00--2-30@2x.png
 fs find cache -e png
 ```
 

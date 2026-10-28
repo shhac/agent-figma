@@ -24,6 +24,10 @@ SETUP (a human creates the token: Figma > Settings > Security > Personal access 
   agent-figma auth update <profile> [--form] [--expires ...] [--seat ...] [--plan ...] [--default]
   agent-figma auth check [profile] [--file <ref>]             verifies the token; shows expiry and observed budget
   agent-figma auth list | default <profile> | remove <profile>
+  Settings nudges: when a 429 reports a seat or plan that contradicts the profile's --seat/--plan, or Figma
+  rejects a token before its recorded expiry, the error hint, a stderr notice, and auth check/list
+  suggestions [{reason, command}] carry the exact 'agent-figma auth update <profile> ...' to run. Never
+  applied automatically: relay the command to the human.
   agent-figma config list | get <key> | set <key> <value> | unset <key> | show | path
     keys: timeout_ms, max_retries, max_wait_s, cache_fresh_s, prefetch (related|off), serve_stale (auto|on|off)
   Recommended read-only scopes: file_content:read, file_metadata:read, library_content:read, library_assets:read,
@@ -45,7 +49,14 @@ NODES
   agent-figma nodes get <ref> [--node id...] [--depth N] [--view all|structure|layout|text|visuals|components] [--raw] [--max-nodes 400] [--expand-instances]
       Component instances are leaves by default (component, props, texts); @components summarises which
       design-system components and variants are used, and --view components prints only that summary.
-  agent-figma nodes find <ref> [--name 'button*'] [--type COMPONENT] [--page Screens] [--limit 100]   cache only
+      Generically named containers (no name, Card/Container/Frame/Group/..., or a name 3+ printed nodes
+      share) get "label": their most prominent heading text. Labels also name render/handoff files.
+  agent-figma nodes find <ref> [--name 'button*'] [--type COMPONENT] [--page Screens] [--limit 100]   cache only;
+      --name matches layer names and labels
+  agent-figma nodes notes <ref> --node id [--no-comments] [--radius 400]   what designers left around a node:
+      {source: canvas|section|comment|description|annotation, text, node_id, name, position?, distance?,
+      author?, created_at?, resolved?, replies?}; comments are 1 Tier 2 call; @notes_coverage when the
+      node's siblings are not cached (its hint names the file outline call that fixes it)
 
 IMAGES AND ASSETS
   agent-figma render <ref> --node id... [--as png|jpg|svg|pdf] [--scale 2] [--out dir] [--url-only] [--with-related]
@@ -57,12 +68,27 @@ IMAGES AND ASSETS
 
 BUILD, TRACK CHANGES, VERIFY
   agent-figma handoff <ref> --node id [--out dir] [--scale 2]     one folder to build from: screenshot.png, tree.ndjson,
-      components.json, styles.json, icons/*.svg (one per component), images/*, manifest.json (<=3 Tier 1 + 1 Tier 2)
+      components.json (with code mappings), styles.json, icons/*.svg (one per component), images/*, notes.json,
+      manifest.json (<=3 Tier 1 + <=2 Tier 2: fills, comments)
   agent-figma diff <ref> [--node id...] [--from version] [--to version] [--render]   what changed between versions:
-      added/removed/moved/changed records with per-field from/to, @diff summary by frame; baseline defaults to the
+      added/removed/moved/changed records with per-field from/to and a path of ancestor names (labels for
+      generic ones), @diff summary by frame; baseline defaults to the
       newest older cached version (usually 1 Tier 1 call); --render adds before/after images of changed frames
   agent-figma compare <ref> --node id --image app.png [--scale auto] [--threshold 24]   where a screenshot differs:
       match_percent, regions attributed to design nodes, diff_image; scale inferred from the screenshot
+
+COMPONENTS TO CODE (checked in, shared by everyone in the repo)
+  <repo-root>/.agent-figma/components.json, found by walking up from the working directory
+  (--components-file or AGENT_FIGMA_COMPONENTS override). Keyed by published set_key (variant sets) or key
+  (standalone components), the same for every user, file, and token; name is the fallback for unpublished ones.
+  agent-figma components map status <ref> [--node id]         components used, mapped or not, and the file in use
+  agent-figma components map add (--set-key K | --key K | --name N) --component Name [--import path]
+      [--prop Figma=code]... [--value Prop.figma=code]... [--ignore Prop]... [--notes text]   replaces any entry
+      with the same key
+  agent-figma components map suggest <ref> [--node id] [--src dir] [--write]   match names against exported
+      code components (.tsx .ts .jsx .js .vue .svelte); --write adds exact matches only
+  Once the file exists: @components entries carry mapped, code {component, import, notes?}, and per variant
+  code_props; instance records carry code {component, import, props}; handoff's components.json too.
 
 LIBRARY AND OTHER READS
   agent-figma components|component-sets|styles list <ref>      Tier 3; main file key (branch links are routed)
@@ -80,7 +106,8 @@ CACHE
 OUTPUT
   NDJSON on stdout (--format json|yaml for one envelope). Metadata lines:
     @file {key, name, version, stale?, latest_version?}   @styles {id: {name?, value}}   @budget {calls, cache_hits, prefetched}
-    @components [{set|component, count, remote?, variants: [{props, count, nodes}]}]
+    @components [{set|component, set_key|key, count, remote?, mapped?, code?, variants: [{props, code_props?, count, nodes}]}]
+    @notes_coverage {complete, uncached, hint}   @components_file {path, exists, entries | scanned, exports, written}
     @related {rel, id, name, cost}   cost: cached (free) | download (CDN only, no API budget) | tier1
     @unresolved {id, reason, fixable_by, hint}   @pagination {has_more, next_cursor}
   For nodes, next_cursor lists the node ids still to print: pass it back as --node to continue

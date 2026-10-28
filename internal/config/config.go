@@ -31,7 +31,7 @@ const (
 var PrefetchModes = []string{PrefetchOff, PrefetchRelated}
 
 // ServeStale decides whether an older cached version may answer when the file
-// has moved on: "auto" means yes for low (monthly Tier 1) seats only.
+// has moved on: "auto" means yes where Tier 1 is monthly (low seats, Starter files).
 const (
 	ServeStaleAuto = "auto"
 	ServeStaleOn   = "on"

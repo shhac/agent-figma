@@ -220,6 +220,15 @@ func (l *Limiter) seatClass(ps *profileState) string {
 	return SeatHigh
 }
 
+// MonthlyTier1 reports whether Tier 1 for this file is a small monthly
+// allowance: a Collab/View seat, or a file on a Starter plan.
+func (l *Limiter) MonthlyTier1(fileKey string) bool {
+	var s state
+	_ = l.Store.Load(&s)
+	s.ensure()
+	return l.seatClass(s.profile(l.Profile)) == SeatLow || l.plan(&s, fileKey) == "starter"
+}
+
 func (l *Limiter) plan(s *state, fileKey string) string {
 	if fs := s.Files[fileKey]; fs != nil && fs.PlanTier != "" {
 		return fs.PlanTier

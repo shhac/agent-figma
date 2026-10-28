@@ -79,9 +79,9 @@ func (s *Session) prefetching() bool {
 	return !s.Opts.NoPrefetch && s.Opts.Prefetch != config.PrefetchOff
 }
 
-func (s *Session) lowSeat() bool {
-	return s.Client.Limiter.Observe().SeatClass == ratelimit.SeatLow
-}
+// lowSeat reports a monthly Tier 1 budget for this file, where reusing an
+// older version beats spending a call.
+func (s *Session) lowSeat() bool { return s.Client.Limiter.MonthlyTier1(s.Key()) }
 
 func (s *Session) servesStale() bool {
 	switch s.Opts.ServeStale {

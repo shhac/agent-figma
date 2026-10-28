@@ -225,3 +225,18 @@ func TestConcurrentProcessesShareTheWindow(t *testing.T) {
 		t.Fatalf("%d grants recorded", len(seen))
 	}
 }
+
+func TestMonthlyTier1ForLowSeatsAndStarterPlans(t *testing.T) {
+	l := newLimiter(t, &clock{t: time.Now()})
+	if l.MonthlyTier1("K") {
+		t.Fatal("an undeclared profile is assumed Full/Dev on Pro")
+	}
+	l.DeclaredPlan = "starter"
+	if !l.MonthlyTier1("K") {
+		t.Fatal("a Starter plan has a monthly Tier 1 budget for every seat")
+	}
+	l.DeclaredPlan, l.DeclaredSeat = "", "view"
+	if !l.MonthlyTier1("K") {
+		t.Fatal("a View seat has a monthly Tier 1 budget")
+	}
+}

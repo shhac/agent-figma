@@ -78,7 +78,7 @@ version, but an older version could answer, `serve_stale` decides:
 
 | `serve_stale` | Behaviour |
 |---|---|
-| `auto` (default) | `on` for low seats, `off` otherwise |
+| `auto` (default) | `on` where Tier 1 is monthly (low seats, Starter files), `off` otherwise |
 | `on` | answer from the older version |
 | `off` | refetch (Tier 1) |
 

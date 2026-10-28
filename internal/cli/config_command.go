@@ -43,6 +43,6 @@ func configKeys() []libcli.ConfigKey {
 		libcli.OptionalIntKey(b, "max_wait_s", "Longest rate-limit wait to sit out before failing (default 60)", func(c *config.Config) **int { return &defaults(c).MaxWaitS }, 0, 3600),
 		libcli.OptionalIntKey(b, "cache_fresh_s", "Seconds a file's cached version is trusted before re-checking (default 300)", func(c *config.Config) **int { return &defaults(c).CacheFreshS }, 0, 30*86400),
 		libcli.OneOfKey(b, "prefetch", "Widen Tier 1 calls with likely-needed ids: related (default) or off", func(c *config.Config) *string { return &defaults(c).Prefetch }, config.PrefetchModes),
-		libcli.OneOfKey(b, "serve_stale", "Answer from an older cached version when the file changed: auto (default; on for low seats), on, off", func(c *config.Config) *string { return &defaults(c).ServeStale }, config.ServeStaleModes),
+		libcli.OneOfKey(b, "serve_stale", "Answer from an older cached version when the file changed: auto (default; on for low seats and Starter files), on, off", func(c *config.Config) *string { return &defaults(c).ServeStale }, config.ServeStaleModes),
 	}
 }

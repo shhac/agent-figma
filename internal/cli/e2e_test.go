@@ -105,7 +105,7 @@ func TestNodesGetSimplifiesAndCachesSubtree(t *testing.T) {
 	if _, ok := recs[mockfigma.NodeHiddenNote]; ok {
 		t.Fatal("hidden nodes must be dropped")
 	}
-	if recs[mockfigma.NodeLogoGroup]["type"] != "SVG" {
+	if recs[mockfigma.NodeLogoGroup]["svg"] != true {
 		t.Fatalf("vector group should collapse: %v", recs[mockfigma.NodeLogoGroup])
 	}
 	if r.meta(t, "@styles") == nil {
@@ -439,5 +439,30 @@ func TestExpiredRenderURLIsForgotten(t *testing.T) {
 	}
 	if r.records(t)[mockfigma.NodeCheckout]["downloaded"] != true {
 		t.Fatalf("second render should download: %s", r.stdout)
+	}
+}
+
+func TestMaxNodesContinuationTerminates(t *testing.T) {
+	srv := mockEnv(t)
+	seen := map[string]bool{}
+	node := mockfigma.NodeCheckout
+	for round := 0; node != ""; round++ {
+		if round > 10 {
+			t.Fatal("continuation does not terminate")
+		}
+		r := mustRun(t, "nodes", "get", fileKey, "--node", node, "--max-nodes", "4", "--view", "structure")
+		for id := range r.records(t) {
+			if seen[id] {
+				t.Fatalf("%s printed twice", id)
+			}
+			seen[id] = true
+		}
+		node = ""
+		if p := r.metaAll(t, "@pagination"); len(p) == 1 {
+			node, _ = p[0]["next_cursor"].(string)
+		}
+	}
+	if srv.Stats().Tier1 != 1 || !seen[mockfigma.NodePriceText] {
+		t.Fatalf("continuation should walk the cached subtree: tier1=%d seen=%v", srv.Stats().Tier1, seen)
 	}
 }

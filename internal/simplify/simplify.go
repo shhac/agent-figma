@@ -54,7 +54,10 @@ type Record struct {
 	Props     map[string]any      `json:"props,omitempty"`
 	Variants  map[string][]string `json:"variant_props,omitempty"`
 	Export    bool                `json:"export,omitempty"`
-	Children  int                 `json:"children,omitempty"`
+	// SVG marks a vector, or a container of only vectors, best exported as
+	// one SVG; its children are not listed.
+	SVG      bool `json:"svg,omitempty"`
+	Children int  `json:"children,omitempty"`
 	// Truncated marks a node whose visible children were not emitted.
 	Truncated bool `json:"truncated,omitempty"`
 }
@@ -74,7 +77,8 @@ type StyleEntry struct {
 type Result struct {
 	Records []Record
 	Styles  map[string]StyleEntry
-	// Next are ids whose children were cut by MaxNodes; request them to continue.
+	// Next are the ids to request to continue: nodes MaxNodes left out, and
+	// nodes whose children were never fetched.
 	Next []string
 }
 
@@ -169,29 +173,29 @@ func (w *walker) emit(id string, depth int, included map[string]bool) {
 		return
 	}
 	stored := w.store.Nodes[id]
-	children := w.visibleChildren(id)
 	svg := w.collapsesToSVG(id)
 	rec := w.record(n, stored, depth, svg)
-	if !svg {
-		rec.Children = len(children)
-		emitted := 0
-		for _, c := range children {
-			if included[c] {
-				emitted++
-			}
-		}
-		if emitted < len(children) || (stored.KnownDepth == 0 && n.Type != "TEXT" && len(children) == 0 && hasChildrenType(n.Type)) {
-			rec.Truncated = true
-			depthCut := w.opts.MaxDepth != cache.Full && depth >= w.opts.MaxDepth
-			if emitted < len(children) && !depthCut {
-				w.next = append(w.next, id)
-			}
-		}
-	}
-	w.records = append(w.records, rec)
 	if svg {
+		w.records = append(w.records, rec)
 		return
 	}
+	children := w.visibleChildren(id)
+	rec.Children = len(children)
+	depthCut := w.opts.MaxDepth != cache.Full && depth >= w.opts.MaxDepth
+	// Children cut by MaxNodes, or never fetched (Figma refused the full
+	// subtree as too large), are where a continuation picks up. Children cut
+	// by MaxDepth were asked to be left out.
+	childrenUnknown := stored.KnownDepth == 0 && len(children) == 0 && hasChildrenType(n.Type)
+	if childrenUnknown && !depthCut {
+		w.next = append(w.next, id)
+	}
+	for _, c := range children {
+		if !included[c] && !depthCut {
+			w.next = append(w.next, c)
+		}
+	}
+	rec.Truncated = childrenUnknown || slices.ContainsFunc(children, func(c string) bool { return !included[c] })
+	w.records = append(w.records, rec)
 	for _, c := range children {
 		w.emit(c, depth+1, included)
 	}
@@ -261,9 +265,7 @@ func displayName(n figma.Node) string {
 
 func (w *walker) record(n figma.Node, stored *cache.StoredNode, depth int, svg bool) Record {
 	rec := Record{ID: n.ID, Parent: stored.Parent, Depth: depth, Type: n.Type, Name: displayName(n)}
-	if svg || n.Type == "VECTOR" {
-		rec.Type = "SVG"
-	}
+	rec.SVG = svg || n.Type == "VECTOR"
 	if box := n.AbsoluteBoundingBox; box != nil {
 		rec.Size = []float64{round(box.Width), round(box.Height)}
 	}

@@ -53,7 +53,7 @@ func TestSimplifyAll(t *testing.T) {
 	if _, ok := recs["1:7"]; ok {
 		t.Fatal("vector-only groups should collapse")
 	}
-	if recs["1:6"].Type != "SVG" || recs["1:6"].Children != 0 {
+	if !recs["1:6"].SVG || recs["1:6"].Type != "GROUP" || recs["1:6"].Children != 0 {
 		t.Fatalf("icon group: %+v", recs["1:6"])
 	}
 	card := recs["1:2"]
@@ -91,17 +91,38 @@ func TestMaxNodesCutsBreadthFirst(t *testing.T) {
 	if len(res.Records) != 3 {
 		t.Fatalf("got %d records", len(res.Records))
 	}
-	if len(res.Next) == 0 {
-		t.Fatal("a cut should report where to continue")
-	}
 	if res.Records[0].ID != "1:1" || res.Records[1].ID != "1:2" {
 		t.Fatalf("order: %+v", res.Records)
+	}
+	// Continuing from the cursor prints only what was left out, and the
+	// chain ends.
+	printed := map[string]bool{}
+	for _, r := range res.Records {
+		printed[r.ID] = true
+	}
+	next := res.Next
+	for round := 0; len(next) > 0; round++ {
+		if round > 5 {
+			t.Fatalf("continuation does not terminate: %v", next)
+		}
+		more := Simplify(store(t), next, Options{View: ViewStructure, MaxDepth: cache.Full, MaxNodes: 3})
+		for _, r := range more.Records {
+			if printed[r.ID] {
+				t.Fatalf("%s printed twice", r.ID)
+			}
+			printed[r.ID] = true
+		}
+		next = more.Next
+	}
+	// 1:1, 1:2, 1:3, 1:4, 1:5, and the collapsed icon 1:6.
+	if len(printed) != 6 {
+		t.Fatalf("continuation covered %d of 6 listable nodes", len(printed))
 	}
 }
 
 func TestMaxDepth(t *testing.T) {
 	res := Simplify(store(t), []string{"1:2"}, Options{View: ViewStructure, MaxDepth: 0})
-	if len(res.Records) != 1 || !res.Records[0].Truncated || len(res.Next) != 0 {
+	if len(res.Records) != 1 || res.Records[0].Children != 3 || len(res.Next) != 0 {
 		t.Fatalf("depth 0: %+v next=%v", res.Records, res.Next)
 	}
 }

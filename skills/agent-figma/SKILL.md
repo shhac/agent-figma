@@ -1,17 +1,14 @@
 ---
 name: agent-figma
 description: |
-  Read Figma design files cheaply from the terminal: resolve figma.com links
-  to file keys and node ids, outline pages and frames, read nodes as compact
-  layout/text/visual records, render nodes to png/jpg/svg/pdf, download image
-  fills and designer exports, and read components, component sets, styles,
-  variables, comments, versions, and dev resources. Use when asked to look at
-  a Figma link or frame, inspect a design's layout, spacing, colours, or
-  typography, export or screenshot a node, list a file's components or
-  variants, read comments or designer notes on a design, build a screen from
-  a design, map design-system components to code components, see what
-  changed in a design, or check an implementation against it. Triggers:
-  figma.com/design, node-id, Figma 429, rate limit exceeded.
+  Read Figma designs from the terminal, budget-aware: resolve figma.com links,
+  outline pages, read nodes as compact layout/text/visual records, render
+  png/jpg/svg/pdf, download assets, and read components, styles, variables,
+  comments, and versions. Use to inspect a Figma link or frame, build a screen
+  from a design (handoff), map design-system components to code, read
+  designer notes, see what changed in a design (diff), or check an
+  implementation against it (compare). Triggers: figma.com/design, node-id,
+  Figma 429.
 allowed-tools: Bash(agent-figma *) Read
 ---
 

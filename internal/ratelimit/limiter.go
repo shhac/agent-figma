@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -186,12 +187,14 @@ func (l *Limiter) Observe429(tier Tier, fileKey string, h http.Header, retryAfte
 
 // Observation is what is known about a profile's budget, for auth check.
 type Observation struct {
-	RateLimitType string            `json:"observed_rate_limit_type,omitempty"`
-	PlanTier      string            `json:"observed_plan,omitempty"`
-	ObservedAt    *time.Time        `json:"observed_at,omitempty"`
-	SeatClass     string            `json:"effective_seat_class"`
-	Cooldowns     map[string]string `json:"cooldowns,omitempty"`
-	Tier1Month    int               `json:"tier1_calls_this_month"`
+	RateLimitType string `json:"observed_rate_limit_type,omitempty"`
+	PlanTier      string `json:"observed_plan,omitempty"`
+	// PlansSeen are the plans Figma has reported for any file.
+	PlansSeen  []string          `json:"plans_seen,omitempty"`
+	ObservedAt *time.Time        `json:"observed_at,omitempty"`
+	SeatClass  string            `json:"effective_seat_class"`
+	Cooldowns  map[string]string `json:"cooldowns,omitempty"`
+	Tier1Month int               `json:"tier1_calls_this_month"`
 }
 
 func (l *Limiter) Observe() Observation {
@@ -200,6 +203,12 @@ func (l *Limiter) Observe() Observation {
 	s.ensure()
 	ps := s.profile(l.Profile)
 	obs := Observation{RateLimitType: ps.RateLimitType, PlanTier: ps.PlanTier, SeatClass: l.seatClass(ps)}
+	for _, fs := range s.Files {
+		if fs.PlanTier != "" && !slices.Contains(obs.PlansSeen, fs.PlanTier) {
+			obs.PlansSeen = append(obs.PlansSeen, fs.PlanTier)
+		}
+	}
+	slices.Sort(obs.PlansSeen)
 	if !ps.ObservedAt.IsZero() {
 		at := ps.ObservedAt
 		obs.ObservedAt = &at

@@ -223,7 +223,7 @@ func summarise(changes []Change, cur, old side) Summary {
 	}
 	sum.Frames = []Frame{}
 	for _, id := range frames {
-		name := cmp.Or(str(cur.records[id]["label"]), str(cur.records[id]["name"]), str(old.records[id]["label"]), str(old.records[id]["name"]))
+		name := cmp.Or(str(cur.records[id]["label"]), str(cur.records[id]["name"]), str(old.records[id]["label"]), str(old.records[id]["name"]), str(cur.records[id]["text"]), str(old.records[id]["text"]))
 		sum.Frames = append(sum.Frames, Frame{ID: id, Name: name, Changes: counts[id]})
 	}
 	return sum

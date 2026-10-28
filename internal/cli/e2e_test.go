@@ -803,6 +803,10 @@ func TestDesignerNotes(t *testing.T) {
 	if _, far := ids[mockfigma.NodeFarText]; far || r.meta(t, "@notes_coverage") != nil {
 		t.Fatalf("far text should be out of radius and coverage complete: %s", r.stdout)
 	}
+	r = mustRun(t, "nodes", "notes", fileKey, "--node", mockfigma.NodeCard, "--no-comments", "--radius", "5000")
+	if strings.Contains(r.stdout, mockfigma.NodeTotalText) {
+		t.Fatalf("design text inside a frame is not a note: %s", r.stdout)
+	}
 	r = mustRun(t, "nodes", "notes", fileKey, "--node", mockfigma.NodeConfirmation, "--no-comments")
 	if sec := bySource(r)["section"]; len(sec) != 1 || sec[0]["node_id"] != mockfigma.NodeSectionNote {
 		t.Fatalf("section text describes its frames: %s", r.stdout)

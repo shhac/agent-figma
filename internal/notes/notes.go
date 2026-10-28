@@ -73,6 +73,12 @@ func Canvas(store *cache.NodeStore, id string, radius float64) ([]Note, Coverage
 			cov.Uncached = append(cov.Uncached, ancestorID)
 		}
 		inSection := ancestor.Type == "SECTION"
+		// Inside a frame or group, siblings are the design itself; notes
+		// sit on the page or in a section.
+		if !inSection && ancestor.Type != "CANVAS" {
+			child = ancestorID
+			continue
+		}
 		for _, sib := range stored.Children {
 			if sib == child {
 				continue

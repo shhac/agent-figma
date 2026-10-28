@@ -29,6 +29,10 @@ One document; the branch key starts from the same tree with its own name (`Examp
         ├── 2:17 FRAME "Export me" (GRADIENT_LINEAR, exportSettings PNG@2x + SVG@1x) → 2:23
         ├── 2:18 INSTANCE of 1:12
         └── 2:30 FRAME "Card" (strokes, effect style) → 2:31 "Card body" → 2:32 "Price row" → 2:33 TEXT, 2:34 ELLIPSE (layoutPositioning ABSOLUTE)
+    ├── 7:1  TEXT "Note" beside Checkout (right), a canvas note
+    ├── 7:2  FRAME "Sticky note" above Checkout → 7:3 TEXT, a sticky-style note
+    ├── 7:4  TEXT "Scratch" far away (outside any sensible radius)
+    └── 7:10 SECTION "Confirmation flow" → 7:13 TEXT (section note), 7:11 FRAME "Confirmation" → 7:12 TEXT
 ```
 
 Local styles: `9:1` Brand/Primary (FILL), `9:2` Heading/H1 (TEXT), `9:3` Body/Label (TEXT), `9:4` Elevation/Card (EFFECT). All four components and the set are published, as are the four styles. One variable collection (`Tokens`, Light/Dark) holds a color, a float, and an alias; two of them are published.

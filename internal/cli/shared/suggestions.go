@@ -41,7 +41,9 @@ func Suggestions(profile string, settings config.Profile, obs ratelimit.Observat
 			Command: "agent-figma auth update " + profile + " --seat full",
 		})
 	}
-	if plan := obs.PlanTier; plan != "" && plan != settings.Plan {
+	// A token can read files on several plans; only nudge when Figma has
+	// never reported the declared plan for any of them.
+	if plan := obs.PlanTier; plan != "" && plan != settings.Plan && !slices.Contains(obs.PlansSeen, settings.Plan) {
 		reason := "Figma reports the " + plan + " plan, but the profile declares --plan " + settings.Plan
 		if settings.Plan == "" || settings.Plan == "unknown" {
 			reason = "Figma reports the " + plan + " plan, and the profile declares none"
@@ -78,11 +80,11 @@ func adviseAfter(r *Resolved, err error) error {
 	}
 	var ae *agenterrors.Error
 	if err != nil && errors.As(err, &ae) {
-		hints := []string{ae.Hint}
+		hints := []string{strings.TrimSuffix(strings.TrimSpace(ae.Hint), ".")}
 		for _, s := range suggestions {
-			hints = append(hints, s.Reason+"; run: "+s.Command)
+			hints = append(hints, s.Reason+". Run: "+s.Command)
 		}
-		ae.Hint = strings.Join(slices.DeleteFunc(hints, func(h string) bool { return h == "" }), " ")
+		ae.Hint = strings.Join(slices.DeleteFunc(hints, func(h string) bool { return h == "" }), ". ") + "."
 		return ae
 	}
 	for _, s := range suggestions {

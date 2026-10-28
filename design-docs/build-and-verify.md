@@ -134,7 +134,7 @@ Designs carry context outside the layers being built: sticky notes and loose tex
 
 Sources, for a node:
 
-- **canvas** — visible TEXT nodes and note-like nodes (names containing "sticky", "note", "annotation", "comment", "todo") that are siblings of the node or of its ancestors up to the page and lie within `--radius` (default 400 px) of the node's box. Each carries `distance` and `position` (`above`, `below`, `left`, `right`, `overlapping`).
+- **canvas** — visible TEXT nodes and note-like nodes (names containing "sticky", "note", "annotation", "comment", "todo") on the page beside the node or its top-level ancestor, within `--radius` (default 400 px) of the node's box. Siblings inside frames and groups are the design itself, so only the page and sections are searched. Each carries `distance` and `position` (`above`, `below`, `left`, `right`, `overlapping`).
 - **section** — text directly inside a `SECTION` that contains the node, at any distance: text in a section describes its contents.
 - **comment** — Figma comments pinned to the node or a descendant (`client_meta.node_id`), with author, date, and resolved state, replies attached to their thread. One Tier 2 call.
 - **description** — the descriptions of components the subtree uses, except keyword lists ("Close, Cancel, X"), which icon libraries use for search rather than guidance.
@@ -150,4 +150,4 @@ Figma reveals the seat class and the plan only in 429 headers, so a profile's de
 - A 429 reporting `X-Figma-Plan-Tier` different from the declared `--plan`, or with none declared → suggest `auth update <profile> --plan <reported>`.
 - A `403 Invalid token` on a profile whose recorded expiry is still in the future → suggest `auth update <profile> --form --expires YYYY-MM-DD` (the token was revoked or the date is wrong).
 
-Suggestions are `{reason, command}` records: printed as a stderr `notice` when the observation is made, folded into the hint of the error that revealed them, and listed under `suggestions` in `auth check` and `auth list` until fixed. They never change a profile by themselves: declarations are the user's statement of fact, and one file's plan can legitimately differ from the profile's usual one.
+Suggestions are `{reason, command}` records: printed as a stderr `notice` when the observation is made, folded into the hint of the error that revealed them, and (for seat and plan, which are recorded) listed under `suggestions` in `auth check` and `auth list` until fixed. A `--plan` nudge is withheld when Figma has also reported the declared plan for some file: one token can legitimately read files on several plans. They never change a profile by themselves: declarations are the user's statement of fact, and one file's plan can legitimately differ from the profile's usual one.

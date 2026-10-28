@@ -72,7 +72,10 @@ func (l *Labeler) For(id string) string {
 	if !IsGenericName(displayName(n)) && l.names[n.Name] < 3 {
 		return ""
 	}
-	return l.Heading(id)
+	if h := l.Heading(id); h != n.Name {
+		return h
+	}
+	return ""
 }
 
 // Heading is the most prominent text under id, previewed.

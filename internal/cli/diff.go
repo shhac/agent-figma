@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 
 	agenterrors "github.com/shhac/lib-agent-output"
@@ -179,7 +180,7 @@ func renderPairs(ctx context.Context, session *fetch.Session, sum diff.Summary, 
 		}
 		for _, img := range res.Images {
 			if paths[img.ID] == nil {
-				paths[img.ID] = map[string]any{"id": img.ID, "name": img.Name}
+				paths[img.ID] = pruned(map[string]any{"id": img.ID, "name": cmp.Or(img.Label, img.Name)})
 			}
 			rec := map[string]any{}
 			fileFields(rec, img.Path)

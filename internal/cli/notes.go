@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	agenterrors "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
@@ -53,7 +54,7 @@ siblings cached; @notes_coverage says when they are not.`,
 				if !cov.Complete {
 					stream.Meta("@notes_coverage", map[string]any{
 						"complete": false, "uncached": cov.Uncached,
-						"hint": "Notes beside the node may be missing: outline its parent with 'agent-figma file outline <ref> --node " + cov.Uncached[0] + " --depth 1' (one Tier 1 call), then ask again.",
+						"hint": "Notes beside the node may be missing: outline its ancestors with 'agent-figma file outline <ref> --node " + strings.Join(cov.Uncached, ",") + " --depth 1' (one Tier 1 call), then ask again.",
 					})
 				}
 				return shared.Finish(stream, session)

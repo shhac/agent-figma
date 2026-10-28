@@ -463,7 +463,10 @@ func addGeometry(n *node) {
 	if !vectorTypes[n.typ] {
 		return
 	}
-	bounds, _ := n.props["absoluteBoundingBox"].(props)
+	bounds, ok := n.props["absoluteBoundingBox"].(props)
+	if !ok {
+		return
+	}
 	w, h := bounds["width"], bounds["height"]
 	n.geometry = props{
 		"fillGeometry": []any{props{

@@ -55,15 +55,26 @@ func (s *Server) getImages(c *call) {
 	nulled := s.nullRenders(c, ids)
 	images := props{}
 	for _, id := range ids {
-		n := s.tree.byID[id]
+		n := v.tree.byID[id]
 		if n == nil || n.typ == "DOCUMENT" || n.hiddenInTree() || nulled[id] {
 			images[id] = nil
 			continue
 		}
-		query := url.Values{"scale": {strconv.FormatFloat(scale, 'f', -1, 64)}, "version": {v.id}}
-		images[id] = c.base + "/_cdn/render/" + escapeNodeID(id) + "." + format + "?" + query.Encode()
+		images[id] = renderURL(c.base, f.key, id, format, scale, v.id)
 	}
 	c.ok(props{"err": nil, "images": images})
+}
+
+// renderURL carries everything the CDN needs to draw the render (file key,
+// node id, version, scale), so a URL keeps showing the version it was issued
+// for even after later edits, as Figma's do.
+func renderURL(base, key, id, format string, scale float64, version string) string {
+	query := url.Values{
+		"key":     {key},
+		"scale":   {strconv.FormatFloat(scale, 'f', -1, 64)},
+		"version": {version},
+	}
+	return base + "/_cdn/render/" + escapeNodeID(id) + "." + format + "?" + query.Encode()
 }
 
 func (s *Server) renderFault(c *call, ids int) bool {
@@ -111,9 +122,11 @@ func (s *Server) getImageFills(c *call) {
 	c.ok(props{"error": false, "status": 200, "meta": props{"images": images}})
 }
 
-// handleCDN serves every URL the mock hands out (renders, fills, thumbnails,
-// avatars) as a tiny valid file of the extension's type. Like Figma's CDN it
-// needs no token; cdn-expired makes it answer as an expired signed URL does.
+// handleCDN serves every URL the mock hands out: PNG and JPEG renders are
+// drawn at the node's size (see rasterize); everything else (SVG and PDF
+// renders, fills, thumbnails, avatars) is a tiny valid file of the
+// extension's type. Like Figma's CDN it needs no token; cdn-expired makes it
+// answer as an expired signed URL does.
 func (s *Server) handleCDN(w http.ResponseWriter, r *http.Request) {
 	rules, err := s.faults.forRequest(r)
 	if err != nil {
@@ -129,10 +142,19 @@ func (s *Server) handleCDN(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>`))
 		return
 	}
-	body, contentType, ok := cdnPayload(strings.TrimPrefix(path.Ext(r.URL.Path), "."))
+	ext := strings.TrimPrefix(path.Ext(r.URL.Path), ".")
+	body, contentType, ok := cdnPayload(ext)
 	if !ok {
 		http.NotFound(w, r)
 		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/_cdn/render/") && rasterFormats[ext] {
+		raster, status := s.renderRaster(r, ext)
+		if status != http.StatusOK {
+			http.Error(w, http.StatusText(status), status)
+			return
+		}
+		body = raster
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))

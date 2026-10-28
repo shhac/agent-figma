@@ -2,11 +2,11 @@
 
 `internal/mockfigma` is a local stand-in for the Figma REST API that backs the CLI contract tests; `cmd/mockfigma` serves it on `127.0.0.1:12112` (`make mock`, `make mock-dev ARGS="..."`, `--addr`, `--routes`). Everything in it is synthetic: file key `FAKEFILEKEY0000000000000`, branch key `FAKEBRANCHKEY00000000000`, image refs `fakeimageref000N`, names like `Example File`.
 
-Tests use `mockfigma.New()` (an `http.Handler`) inside `httptest.NewServer`. The server builds every URL it hands out (render, fill, thumbnail, avatar, pagination) from the request's `Host`, so links point back at whichever listener served them. `Stats()`, `Reset()`, `SetFaults(spec)` and `BumpVersion(key)` give in-process tests the same controls as the HTTP endpoints. The fixture's node ids, keys and versions are exported constants (`NodeCheckout`, `ButtonDefaultKey`, `InitialVersion`, …).
+Tests use `mockfigma.New()` (an `http.Handler`) inside `httptest.NewServer`. The server builds every URL it hands out (render, fill, thumbnail, avatar, pagination) from the request's `Host`, so links point back at whichever listener served them. `Stats()`, `Reset()`, `SetFaults(spec)`, `BumpVersion(key)` and `Edit(key, edits...)` give in-process tests the same controls as the HTTP endpoints. The fixture's node ids, keys and versions are exported constants (`NodeCheckout`, `ButtonDefaultKey`, `InitialVersion`, …).
 
 ## Fixture
 
-One document; the branch key serves the same tree with its own name (`Example Branch`) and version history.
+One document; the branch key starts from the same tree with its own name (`Example Branch`) and version history, and is edited independently.
 
 ```text
 0:0  DOCUMENT
@@ -33,7 +33,41 @@ One document; the branch key serves the same tree with its own name (`Example Br
 
 Local styles: `9:1` Brand/Primary (FILL), `9:2` Heading/H1 (TEXT), `9:3` Body/Label (TEXT), `9:4` Elevation/Card (EFFECT). All four components and the set are published, as are the four styles. One variable collection (`Tokens`, Light/Dark) holds a color, a float, and an alias; two of them are published.
 
-Versions are numeric strings, newest first: main starts at `1000000000000000001` with four older versions; the branch at `1000000000000000101`. `POST /_mock/version/bump[?key=]` adds a version one higher and one minute later (an edit); `POST /_mock/reset` restores both histories.
+Versions are numeric strings, newest first: main starts at `1000000000000000001` with four older versions; the branch at `1000000000000000101`. Every version of the starting history serves the fixture above.
+
+### Versions are snapshots
+
+Each version carries its own document tree. A read with `version=<id>` serves that version's tree; without it, the newest. Published trees are never mutated: an edit deep-copies the newest tree, changes the copy, and publishes it as a new version, so a render URL or a cached response for an older version keeps showing the old content. The `components` / `componentSets` / `styles` maps are built from whichever tree was served. The published-library endpoints (`/components`, `/styles`, `/v1/components/:key`, …) describe the fixture as built and ignore edits, as a library only changes on publish.
+
+Two ways to make a version, both one higher and one minute later than the newest:
+
+- `BumpVersion(key)` / `POST /_mock/version/bump[?key=]`: a new version with the same content (an edit that changes nothing a read can see).
+- `Edit(key, edits...)` / `POST /_mock/edit[?key=]`: a new version whose tree is the newest tree with the edits applied in order. One call is one version, however many edits it carries. If any edit fails, nothing is published.
+
+`Reset()` / `POST /_mock/reset` restores both original histories, discarding every edit.
+
+### Edits
+
+`Edit{Op, Node, Field, Value, Parent, Index, NodeJSON}`; over HTTP the body is a JSON list of objects with snake_case names (`op`, `node`, `field`, `value`, `parent`, `index`, `node_json`), and an unknown name is a 400.
+
+| `Op` | Uses | Effect |
+|---|---|---|
+| `EditSet` `"set"` | `Node`, `Field`, `Value` | sets one top-level property to a JSON value (`characters`, `fills`, `itemSpacing`, `absoluteBoundingBox`, …). `name` takes a string; `id`, `type`, `children` cannot be set. Setting `absoluteBoundingBox` on a vector-like node refreshes its `geometry=paths` output. |
+| `EditRemove` `"remove"` | `Node` | deletes the node and its subtree (not the document) |
+| `EditAdd` `"add"` | `Parent`, `Index`, `NodeJSON` | inserts a Figma-shaped node object (`id`, `type`, optional `name`, `children`, any other properties; `fillGeometry`/`strokeGeometry` or derived from the box) under a container `Parent`. Every id in it must be new. |
+| `EditMove` `"move"` | `Node`, `Parent`, `Index` | reparents the node under a container `Parent`, never under itself |
+
+`Index` is the position among `Parent`'s children (for a move, counted after the node has left its old parent); negative (`AppendIndex`) or past the end appends, and an omitted JSON `index` inserts first. Go values are round-tripped through JSON, so `[]map[string]any` and ints take the fixture's own shapes.
+
+```text
+POST /_mock/edit?key=FAKEFILEKEY0000000000000
+[{"op": "set", "node": "2:12", "field": "characters", "value": "Total: $50.00"},
+ {"op": "set", "node": "2:34", "field": "fills", "value": [{"type": "SOLID", "color": {"r": 1, "g": 0, "b": 0, "a": 1}}]},
+ {"op": "add", "parent": "2:10", "index": -1, "node_json": {"id": "3:1", "type": "RECTANGLE", "absoluteBoundingBox": {"x": 24, "y": 840, "width": 327, "height": 40}}}]
+→ 200 {"key": "FAKEFILEKEY0000000000000", "version": "1000000000000000002", "lastModified": "…"}
+```
+
+An unknown node or parent id, unknown op, read-only field, non-container parent, clashing id, cycle, or malformed body is a `400 {"error": …}` (a failed edit reads `edit <i> (<op>): …`); an empty list is a 400 too, and an unknown key a 404.
 
 ## Routes
 
@@ -60,12 +94,24 @@ Semantics worth knowing:
 - **`depth`** is a positive integer. On `/v1/files/:key` it counts from the root (`depth=1` is pages only); on `/nodes` it counts from each requested node. A container cut by the limit has no `children` key at all, so "not fetched" differs from "empty".
 - **`components` / `componentSets` / `styles`** maps on file and node responses list only what the returned nodes contain or reference.
 - **`/nodes`** maps an unknown id to `null`.
-- **`/v1/images/:key`** includes every requested id; unknown ids, the document, and nodes that are invisible (or inside an invisible parent) map to `null`. URLs point at `/_cdn/render/<id>.<format>?scale=…&version=…` with `:` and `;` percent-escaped. The response is `{err: null, images}` with no `status` field (Figma's docs say it is omitted on success).
+- **`version`** on file, nodes and images serves that version's snapshot and reports it as `version`; an id the history lacks is a 404. `/meta` always reports the newest.
+- **`/v1/images/:key`** includes every requested id; unknown ids, the document, and nodes that are invisible (or inside an invisible parent) in the requested version map to `null`. URLs point at `/_cdn/render/<id>.<format>?key=<key>&scale=<scale>&version=<version>` with `:` and `;` percent-escaped in the id. The response is `{err: null, images}` with no `status` field (Figma's docs say it is omitted on success).
 - **Branch keys** work everywhere except the library lists and dev resources, which answer `404` because they need the main key.
 - **Error bodies** follow the OpenAPI spec per endpoint: `{status, err}` for most; `{error: true, status, message}` for variables and dev resources, and for the library endpoints' 404.
 - Raw `;` in a query string (instance ids such as `I2:11;1:14`) is dropped by Go's parser; send it percent-encoded, as `url.Values` does.
 
 `/_cdn/<kind>/<name>.<ext>` needs no auth and serves a valid 1×1 PNG, a 1×1 JPEG, a one-rect SVG, or a one-page PDF with the matching `Content-Type`; any other extension is a 404.
+
+### Sized renders
+
+PNG and JPEG renders (`/_cdn/render/<id>.png|.jpg`) are drawn, so `compare`-style tests can match or mismatch a screenshot and localise a difference. The query names the snapshot: `key` (default the main file), `version` (default the newest) and `scale` (default 1); an unknown key, version or node is a 404. The drawing is a deterministic stand-in for Figma's renderer, predictable from the tree alone:
+
+- Size is `round(width × scale)` × `round(height × scale)` from the node's `absoluteBoundingBox`, each side clamped to 1..`MaxRenderSide` (4096). A node without a box (a page) is 1×1.
+- The background is the node's first visible `SOLID` fill, or white.
+- Every visible descendant (a hidden node hides its subtree) with a visible `SOLID` fill is drawn, in tree order, as an opaque rectangle at its box relative to the node's, scaled, with edges rounded and clipped to the image. A TEXT node is a rectangle of its text colour.
+- Alpha, opacity, gradients, image fills, strokes, effects, corner radii and clipping are ignored.
+
+So an edit to one child's fill changes exactly the pixels of that child's rectangle. JPEGs are quality 95, so their colours are close rather than exact. SVG and PDF renders stay the fixed tiny files.
 
 ## Mock controls
 
@@ -73,9 +119,10 @@ No auth needed:
 
 - `GET /` lists the routes (also `mockfigma --routes`).
 - `GET /_mock/stats` returns `{"tier1": n, "tier2": n, "tier3": n, "by_path": {path: n}, "requests": [{"path", "query"}]}`. It counts every request under `/v1/` or `/v2/`, classified by `ratelimit.TierFor`, including ones a fault or a bad token refused, since a real client spent budget on them. CDN downloads and mock controls are not counted.
-- `POST /_mock/reset` clears counters and faults and restores versions.
+- `POST /_mock/reset` clears counters and faults and restores both original version histories (edits are discarded).
 - `POST /_mock/faults?rules=<comma-separated>` replaces the standing rules (a rule that does not parse is a 400 naming it); `GET /_mock/faults` shows them with how often each fired; `DELETE /_mock/faults` clears them.
-- `POST /_mock/version/bump[?key=<key>]` simulates an edit.
+- `POST /_mock/version/bump[?key=<key>]` adds a newest version with unchanged content.
+- `POST /_mock/edit[?key=<key>]` with a JSON list of edits adds a newest version with them applied (see Edits). Both answer `{key, version, lastModified}`; `key` defaults to the main file.
 
 ## Fault grammar
 

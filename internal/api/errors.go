@@ -13,6 +13,16 @@ import (
 	"github.com/shhac/agent-figma/internal/ratelimit"
 )
 
+// Decode parses a Figma response body, reporting one it cannot read as a
+// retryable error rather than as empty fields.
+func Decode[T any](raw []byte, what string) (T, error) {
+	var v T
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return v, agenterrors.Wrap(err, agenterrors.FixableByRetry).WithHint("Figma returned an unexpected " + what + " response")
+	}
+	return v, nil
+}
+
 // HTTPError is the Cause of every mapped non-2xx response, so callers can
 // branch on what Figma said (a too-large request, a failed render) without
 // parsing the agent-facing message.

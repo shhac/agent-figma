@@ -2,7 +2,6 @@ package fetch
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 
 	agenterrors "github.com/shhac/lib-agent-output"
 
+	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/figma"
 )
@@ -289,9 +289,9 @@ func (s *Session) requestRenders(ctx context.Context, req RenderRequest, need, e
 		if err != nil {
 			return nil, err
 		}
-		var resp figma.ImagesResponse
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			return nil, unexpected(err, "images")
+		resp, err := api.Decode[figma.ImagesResponse](raw, "images")
+		if err != nil {
+			return nil, err
 		}
 		if resp.Images == nil {
 			resp.Images = map[string]*string{}

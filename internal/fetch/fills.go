@@ -2,7 +2,6 @@ package fetch
 
 import (
 	"context"
-	"encoding/json"
 	"mime"
 	"net/http"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	agenterrors "github.com/shhac/lib-agent-output"
 
+	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/figma"
 )
@@ -45,9 +45,9 @@ func (s *Session) Fills(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var resp figma.FillsResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, unexpected(err, "image fills")
+	resp, err := api.Decode[figma.FillsResponse](raw, "image fills")
+	if err != nil {
+		return nil, err
 	}
 	images := resp.Meta.Images
 	if images == nil {

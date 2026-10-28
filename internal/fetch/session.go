@@ -6,7 +6,6 @@ package fetch
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -118,9 +117,9 @@ func (s *Session) Meta(ctx context.Context) (figma.FileMeta, error) {
 	if err != nil {
 		return figma.FileMeta{}, err
 	}
-	var resp figma.MetaResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return figma.FileMeta{}, unexpected(err, "file meta")
+	resp, err := api.Decode[figma.MetaResponse](raw, "file meta")
+	if err != nil {
+		return figma.FileMeta{}, err
 	}
 	if resp.File.Version != "" {
 		_ = s.File.SetHead(cache.Head{Version: resp.File.Version, CheckedAt: s.now(), Name: resp.File.Name})
@@ -182,10 +181,6 @@ func (s *Session) currentVersion(ctx context.Context) (string, error) {
 func offlineMiss() error {
 	return agenterrors.New("nothing cached for this file and --offline forbids calling Figma", agenterrors.FixableByAgent).
 		WithHint("Drop --offline, or check 'agent-figma cache status' for the profile and file key in use.")
-}
-
-func unexpected(err error, what string) error {
-	return agenterrors.Wrap(err, agenterrors.FixableByRetry).WithHint("Figma returned an unexpected " + what + " response")
 }
 
 func joinIDs(ids []string) string { return strings.Join(ids, ",") }

@@ -3,7 +3,6 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"maps"
 	"slices"
@@ -14,10 +13,12 @@ import (
 	agenterrors "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
+	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/cli/shared"
 	"github.com/shhac/agent-figma/internal/config"
 	"github.com/shhac/agent-figma/internal/credential"
+	"github.com/shhac/agent-figma/internal/figma"
 	"github.com/shhac/agent-figma/internal/figmaurl"
 	"github.com/shhac/agent-figma/internal/output"
 	"github.com/shhac/agent-figma/internal/ratelimit"
@@ -212,56 +213,28 @@ func registerCheck(parent *cobra.Command, globals *shared.GlobalFlags) {
 				flags.Profile = args[0]
 			}
 			return shared.WithClient(cmd.Context(), &flags, func(ctx context.Context, r *shared.Resolved) error {
-				record := map[string]any{
-					"status":       "ok",
-					"profile":      r.Profile,
-					"token_source": r.TokenSource,
-					"budget":       r.Client.Limiter.Observe(),
+				planToken := r.Settings.Kind == config.KindPlan
+				if planToken && fileRef == "" {
+					return agenterrors.New("plan access tokens cannot call /v1/me", agenterrors.FixableByAgent).
+						WithHint("Verify with a file the token can read: 'agent-figma auth check <profile> --file <url-or-key>'.")
 				}
+				record := map[string]any{"status": "ok", "token_source": r.TokenSource, "budget": r.Client.Limiter.Observe()}
 				if r.Profile != "" {
-					record["kind"] = orDefault(r.Settings.Kind, config.KindPAT)
-					record["declared_seat"] = orDefault(r.Settings.Seat, "unknown")
-					record["declared_plan"] = orDefault(r.Settings.Plan, "unknown")
-					if r.Settings.Expires != "" {
-						record["expires"] = r.Settings.Expires
-						days, _ := shared.DaysUntilExpiry(r.Settings.Expires, time.Now())
-						record["expires_in_days"] = days
-					}
+					record = profileRecord(config.Read(), r.Profile, record)
 				}
-				if r.Settings.Kind == config.KindPlan || fileRef != "" {
-					if fileRef == "" {
-						return agenterrors.New("plan access tokens cannot call /v1/me", agenterrors.FixableByAgent).
-							WithHint("Verify with a file the token can read: 'agent-figma auth check <profile> --file <url-or-key>'.")
-					}
-					ref, err := figmaurl.Parse(fileRef)
-					if err != nil {
-						return agenterrors.Wrap(err, agenterrors.FixableByAgent)
-					}
-					raw, err := r.Client.Get(ctx, "/v1/files/"+ref.Key()+"/meta", nil)
+				if fileRef != "" {
+					file, err := checkFile(ctx, r, fileRef)
 					if err != nil {
 						return err
 					}
-					var meta struct {
-						File struct {
-							Name string `json:"name"`
-							Role string `json:"role"`
-						} `json:"file"`
-					}
-					_ = json.Unmarshal(raw, &meta)
-					record["file"] = map[string]any{"key": ref.Key(), "name": meta.File.Name, "role": meta.File.Role}
+					record["file"] = file
 				}
-				if r.Settings.Kind != config.KindPlan {
-					raw, err := r.Client.Get(ctx, "/v1/me", nil)
+				if !planToken {
+					user, err := checkMe(ctx, r)
 					if err != nil {
 						return err
 					}
-					var me struct {
-						ID     string `json:"id"`
-						Handle string `json:"handle"`
-						Email  string `json:"email"`
-					}
-					_ = json.Unmarshal(raw, &me)
-					record["user"] = map[string]any{"id": me.ID, "handle": me.Handle, "email": me.Email}
+					record["user"] = user
 				}
 				return output.WriteItem(record, flags.Format)
 			})
@@ -269,6 +242,30 @@ func registerCheck(parent *cobra.Command, globals *shared.GlobalFlags) {
 	}
 	cmd.Flags().StringVar(&fileRef, "file", "", "Verify by reading this file's metadata (required for plan access tokens)")
 	parent.AddCommand(cmd)
+}
+
+func checkFile(ctx context.Context, r *shared.Resolved, fileRef string) (map[string]any, error) {
+	ref, err := figmaurl.Parse(fileRef)
+	if err != nil {
+		return nil, agenterrors.Wrap(err, agenterrors.FixableByAgent)
+	}
+	raw, err := r.Client.Get(ctx, "/v1/files/"+ref.Key()+"/meta", nil)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := api.Decode[figma.MetaResponse](raw, "file meta")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"key": ref.Key(), "name": meta.File.Name, "role": meta.File.Role}, nil
+}
+
+func checkMe(ctx context.Context, r *shared.Resolved) (figma.User, error) {
+	raw, err := r.Client.Get(ctx, "/v1/me", nil)
+	if err != nil {
+		return figma.User{}, err
+	}
+	return api.Decode[figma.User](raw, "user")
 }
 
 func registerList(parent *cobra.Command, globals *shared.GlobalFlags) {

@@ -2,9 +2,9 @@ package fetch
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
+	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/figma"
 )
 
@@ -42,11 +42,11 @@ func (s *Session) Library(ctx context.Context, kind string) ([]figma.PublishedCo
 	if err != nil {
 		return nil, err
 	}
-	var resp struct {
+	resp, err := api.Decode[struct {
 		Meta map[string][]figma.PublishedComponent `json:"meta"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, unexpected(err, kind)
+	}](raw, kind)
+	if err != nil {
+		return nil, err
 	}
 	list := resp.Meta[kind]
 	if list == nil {

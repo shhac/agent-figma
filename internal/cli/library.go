@@ -2,11 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
 	"github.com/spf13/cobra"
 
+	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cli/shared"
 	"github.com/shhac/agent-figma/internal/fetch"
 	"github.com/shhac/agent-figma/internal/figma"
@@ -62,10 +62,10 @@ func registerLibrary(root *cobra.Command, globals *shared.GlobalFlags) {
 						if err != nil {
 							return nil, err
 						}
-						var resp struct {
+						resp, err := api.Decode[struct {
 							Meta figma.PublishedComponent `json:"meta"`
-						}
-						if err := json.Unmarshal(raw, &resp); err != nil {
+						}](raw, g.use)
+						if err != nil {
 							return nil, err
 						}
 						return libraryRecord(resp.Meta), nil

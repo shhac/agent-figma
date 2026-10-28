@@ -2,15 +2,14 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 
-	agenterrors "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
+	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cli/shared"
 	"github.com/shhac/agent-figma/internal/figmaurl"
 	"github.com/shhac/agent-figma/internal/output"
@@ -34,13 +33,6 @@ func fileRead(cmd *cobra.Command, globals *shared.GlobalFlags, arg string, nodes
 	})
 }
 
-func decode(raw []byte, v any, what string) error {
-	if err := json.Unmarshal(raw, v); err != nil {
-		return agenterrors.Wrap(err, agenterrors.FixableByRetry).WithHint("Figma returned an unexpected " + what + " response")
-	}
-	return nil
-}
-
 func registerReads(root *cobra.Command, globals *shared.GlobalFlags) {
 	var published bool
 	variables := &cobra.Command{Use: "variables", Short: "Variables and collections (Enterprise plans only)"}
@@ -58,13 +50,13 @@ func registerReads(root *cobra.Command, globals *shared.GlobalFlags) {
 				if err != nil {
 					return err
 				}
-				var resp struct {
+				resp, err := api.Decode[struct {
 					Meta struct {
 						Variables           map[string]map[string]any `json:"variables"`
 						VariableCollections map[string]map[string]any `json:"variableCollections"`
 					} `json:"meta"`
-				}
-				if err := decode(raw, &resp, "variables"); err != nil {
+				}](raw, "variables")
+				if err != nil {
 					return err
 				}
 				modeNames := map[string]string{}
@@ -121,10 +113,10 @@ func registerReads(root *cobra.Command, globals *shared.GlobalFlags) {
 				if err != nil {
 					return err
 				}
-				var resp struct {
+				resp, err := api.Decode[struct {
 					Comments []map[string]any `json:"comments"`
-				}
-				if err := decode(raw, &resp, "comments"); err != nil {
+				}](raw, "comments")
+				if err != nil {
 					return err
 				}
 				for _, c := range resp.Comments {
@@ -164,13 +156,13 @@ func registerReads(root *cobra.Command, globals *shared.GlobalFlags) {
 				if err != nil {
 					return err
 				}
-				var resp struct {
+				resp, err := api.Decode[struct {
 					Versions   []map[string]any `json:"versions"`
 					Pagination struct {
 						NextPage string `json:"next_page"`
 					} `json:"pagination"`
-				}
-				if err := decode(raw, &resp, "versions"); err != nil {
+				}](raw, "versions")
+				if err != nil {
 					return err
 				}
 				for _, v := range resp.Versions {
@@ -208,10 +200,10 @@ func registerReads(root *cobra.Command, globals *shared.GlobalFlags) {
 				if err != nil {
 					return err
 				}
-				var resp struct {
+				resp, err := api.Decode[struct {
 					DevResources []map[string]any `json:"dev_resources"`
-				}
-				if err := decode(raw, &resp, "dev resources"); err != nil {
+				}](raw, "dev resources")
+				if err != nil {
 					return err
 				}
 				for _, d := range resp.DevResources {

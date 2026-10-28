@@ -2,9 +2,10 @@ package fetch
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"strconv"
+
+	agenterrors "github.com/shhac/lib-agent-output"
 
 	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cache"
@@ -176,9 +177,9 @@ func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string,
 		if err != nil {
 			return nil, err
 		}
-		var resp figma.NodesResponse
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			return nil, unexpected(err, "nodes")
+		resp, err := api.Decode[figma.NodesResponse](raw, "nodes")
+		if err != nil {
+			return nil, err
 		}
 		return &resp, nil
 	}
@@ -207,9 +208,9 @@ func (s *Session) getFile(ctx context.Context, q map[string][]string) (*figma.Fi
 	if err != nil {
 		return nil, err
 	}
-	var resp figma.FileResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, unexpected(err, "file")
+	resp, err := api.Decode[figma.FileResponse](raw, "file")
+	if err != nil {
+		return nil, err
 	}
 	return &resp, nil
 }
@@ -276,7 +277,7 @@ func countNew(store *cache.NodeStore, extras []string) int {
 }
 
 func cacheError(err error) error {
-	return unexpected(err, "cache write")
+	return agenterrors.Wrap(err, agenterrors.FixableByHuman).WithHint("Could not write the cache; check 'agent-figma cache path' is writable.")
 }
 
 // Searchable returns the richest cached store for the file's current

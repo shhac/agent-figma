@@ -133,7 +133,7 @@ Rules, adapted from Framelink's simplifier:
 - Numbers rounded to 2 decimal places.
 - A style value (layout, fills, strokes, effects, text style) used by 2+ emitted nodes, or bound to a named Figma style, moves into `@styles` under a content-hashed id (`fill_1a2b3c4d`); single-use values stay inline.
 
-`--view` narrows what is emitted: `structure` (id, parent, depth, type, name, size, children — what `file outline` prints), `layout`, `text`, `visuals`. `--raw` emits Figma's node JSON unchanged, one line per requested node.
+`--view` narrows what is emitted: `structure` (id, parent, depth, type, name, size, children, and an 80-character `text` preview for TEXT nodes, whose layer names are dropped — what `file outline` prints), `layout`, `text`, `visuals`. `--raw` emits Figma's node JSON unchanged, one line per requested node.
 
 ### Files on disk
 

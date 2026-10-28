@@ -70,7 +70,7 @@ hex when describing the design.
 | View | Keeps |
 |---|---|
 | `all` (default) | everything above |
-| `structure` | `id, parent, depth, type, name, size, children` (what `file outline` prints) |
+| `structure` | `id, parent, depth, type, name, size, children`, plus a one-line `text` preview (≤80 chars) on TEXT nodes (what `file outline` prints) |
 | `layout` | structure + `layout`, `pos` |
 | `text` | structure + `text`, `text_style`, and `fills` on TEXT nodes |
 | `visuals` | structure + `fills`, `strokes`, `effects`, `radius`, `opacity` |

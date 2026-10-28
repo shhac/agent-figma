@@ -204,6 +204,21 @@ func (w *walker) emit(id string, depth int, included map[string]bool) {
 	}
 }
 
+const textPreviewRunes = 80
+
+// preview is the first line of s, cut to max runes with an ellipsis.
+func preview(s string, max int) string {
+	line, _, cut := strings.Cut(strings.TrimSpace(s), "\n")
+	runes := []rune(line)
+	if len(runes) > max {
+		return string(runes[:max-1]) + "…"
+	}
+	if cut {
+		return line + "…"
+	}
+	return line
+}
+
 func hasChildrenType(t string) bool {
 	switch t {
 	case "DOCUMENT", "CANVAS", "FRAME", "GROUP", "COMPONENT", "COMPONENT_SET", "INSTANCE", "SECTION", "BOOLEAN_OPERATION":
@@ -301,7 +316,12 @@ func (w *walker) record(n figma.Node, stored *cache.StoredNode, depth int, svg b
 			rec.Opacity = &o
 		}
 	}
-	if (want(ViewText)) && n.Type == "TEXT" {
+	if view == ViewStructure && n.Type == "TEXT" {
+		// TEXT layer names are dropped as noise, so the outline shows what
+		// the text says instead.
+		rec.Text = preview(n.Characters, textPreviewRunes)
+	}
+	if want(ViewText) && n.Type == "TEXT" {
 		rec.Text = textOf(n)
 		if style := textStyleOf(n.Style); style != nil {
 			rec.TextStyle = w.styles.use("text", style, w.styles.named(n, "text"))

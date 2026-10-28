@@ -126,3 +126,13 @@ func TestMaxDepth(t *testing.T) {
 		t.Fatalf("depth 0: %+v next=%v", res.Records, res.Next)
 	}
 }
+
+func TestStructureViewPreviewsText(t *testing.T) {
+	res := Simplify(store(t), []string{"1:2"}, Options{View: ViewStructure, MaxDepth: cache.Full})
+	if got := byID(res.Records)["1:3"].Text; got != "Hello world" {
+		t.Fatalf("text preview = %q", got)
+	}
+	if preview("first line\nsecond", 80) != "first line…" || preview("abcdef", 4) != "abc…" {
+		t.Fatal("preview cuts")
+	}
+}

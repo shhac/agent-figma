@@ -110,7 +110,8 @@ func BestMatch(figmaName string, exports []Export) (Match, bool) {
 	var best *Export
 	for i, e := range exports {
 		have := Normalize(e.Name)
-		if have == "" || !(strings.Contains(have, want) || strings.Contains(want, have)) {
+		related := strings.Contains(have, want) || strings.Contains(want, have)
+		if have == "" || !related {
 			continue
 		}
 		if best == nil || len(e.Name) < len(best.Name) {

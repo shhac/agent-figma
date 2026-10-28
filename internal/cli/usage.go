@@ -71,7 +71,8 @@ OUTPUT
     @file {key, name, version, stale?, latest_version?}   @styles {id: {name?, value}}   @budget {calls, cache_hits, prefetched}
     @related {rel, id, name, cost}   cost: cached (free) | download (CDN only, no API budget) | tier1
     @unresolved {id, reason, fixable_by, hint}   @pagination {has_more, next_cursor}
-  For nodes, next_cursor is a comma list of node ids whose children were cut: pass it back as --node.
+  For nodes, next_cursor lists the node ids still to print: pass it back as --node to continue
+  (cached, so following it to the end costs no Tier 1 call). svg:true marks vectors best exported as SVG.
   Errors: {error, fixable_by: agent|human|retry, hint, retry_after_seconds?} JSON on stderr, exit 1.
 
 RATE LIMITS

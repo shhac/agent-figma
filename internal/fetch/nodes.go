@@ -135,12 +135,9 @@ func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth i
 	if depth != cache.Full {
 		return s.fetchNodesEndpoint(ctx, need, extras, depth)
 	}
-	all := append(append([]string{}, need...), extras...)
-	resp, err := s.getFile(ctx, query("ids", joinIDs(all)))
-	if err != nil && len(extras) > 0 && retryableWithoutExtras(err) {
-		extras = nil
-		resp, err = s.getFile(ctx, query("ids", joinIDs(need)))
-	}
+	resp, extras, err := withExtras(need, extras, func(ids []string) (*figma.FileResponse, error) {
+		return s.getFile(ctx, query("ids", joinIDs(ids)))
+	})
 	if api.IsRequestTooLarge(err) {
 		for _, d := range []int{4, 2, 1} {
 			res, nerr := s.fetchNodesEndpoint(ctx, need, nil, d)
@@ -157,7 +154,7 @@ func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth i
 	if err != nil {
 		return nil, err
 	}
-	store, err := s.storeFile(resp, all, cache.Full)
+	store, err := s.storeFile(resp, append(append([]string{}, need...), extras...), cache.Full)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +169,6 @@ func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth i
 }
 
 func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string, depth int) (*NodesResult, error) {
-	all := append(append([]string{}, need...), extras...)
 	get := func(ids []string) (*figma.NodesResponse, error) {
 		raw, err := s.Client.Get(ctx, "/v1/files/"+s.Key()+"/nodes", query("ids", joinIDs(ids), "depth", depthParam(depth)))
 		if err != nil {
@@ -184,11 +180,7 @@ func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string,
 		}
 		return &resp, nil
 	}
-	resp, err := get(all)
-	if err != nil && len(extras) > 0 && retryableWithoutExtras(err) {
-		extras = nil
-		resp, err = get(need)
-	}
+	resp, extras, err := withExtras(need, extras, get)
 	if err != nil {
 		return nil, err
 	}

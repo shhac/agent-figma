@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -302,11 +303,7 @@ func (s *Session) requestRenders(ctx context.Context, req RenderRequest, need, e
 		}
 		return resp.Images, nil
 	}
-	all := append(append([]string{}, need...), extras...)
-	got, err := call(all)
-	if err != nil && len(extras) > 0 && retryableWithoutExtras(err) {
-		got, err = call(need)
-	}
+	got, _, err := withExtras(need, extras, call)
 	if err != nil && len(need) > 1 && retryableWithoutExtras(err) {
 		half := len(need) / 2
 		first, err1 := call(need[:half])
@@ -317,9 +314,7 @@ func (s *Session) requestRenders(ctx context.Context, req RenderRequest, need, e
 		if err2 != nil {
 			return nil, err2
 		}
-		for k, v := range second {
-			first[k] = v
-		}
+		maps.Copy(first, second)
 		return first, nil
 	}
 	return got, err

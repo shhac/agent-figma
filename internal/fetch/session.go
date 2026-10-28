@@ -200,6 +200,20 @@ func query(pairs ...string) url.Values {
 	return q
 }
 
+// withExtras sends need plus the speculative extras; when that fails in a way
+// that dropping them might fix, it retries with need alone. It returns the
+// extras that were actually sent, so callers credit only those as prefetched.
+func withExtras[T any](need, extras []string, call func([]string) (T, error)) (T, []string, error) {
+	if len(extras) > 0 {
+		got, err := call(append(append([]string{}, need...), extras...))
+		if err == nil || !retryableWithoutExtras(err) {
+			return got, extras, err
+		}
+	}
+	got, err := call(need)
+	return got, nil, err
+}
+
 // retryableWithoutExtras reports failures where dropping speculative extras
 // might help: an oversized request, a failed render, or a server error.
 func retryableWithoutExtras(err error) bool {

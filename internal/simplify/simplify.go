@@ -34,6 +34,9 @@ type Options struct {
 	// ExpandInstances emits the insides of component instances. By default
 	// an instance is a leaf: its component, props, and texts.
 	ExpandInstances bool
+	// InlineStyles keeps every style value on its record instead of hoisting
+	// shared ones into the table, for comparing records across outputs.
+	InlineStyles bool
 }
 
 // Record is one simplified node.
@@ -117,7 +120,7 @@ func Simplify(store *cache.NodeStore, roots []string, opts Options) Result {
 		}
 		w.emit(root, 0, included)
 	}
-	return Result{Records: w.records, Styles: w.styles.finish(w.records), Next: w.next, Components: w.uses.list()}
+	return Result{Records: w.records, Styles: w.styles.finish(w.records, opts.InlineStyles), Next: w.next, Components: w.uses.list()}
 }
 
 type walker struct {

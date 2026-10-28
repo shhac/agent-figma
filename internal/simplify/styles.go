@@ -61,8 +61,9 @@ func (t *styleTable) use(category string, value any, name string) any {
 }
 
 // finish resolves pending values in records: a value used by 2+ records or
-// bound to a named style becomes a table id; the rest are inlined.
-func (t *styleTable) finish(records []Record) map[string]StyleEntry {
+// bound to a named style becomes a table id; the rest are inlined. With
+// inline, every value stays on its record and the table is empty.
+func (t *styleTable) finish(records []Record, inline bool) map[string]StyleEntry {
 	table := map[string]StyleEntry{}
 	resolve := func(v any) any {
 		p, ok := v.(pending)
@@ -70,7 +71,7 @@ func (t *styleTable) finish(records []Record) map[string]StyleEntry {
 			return v
 		}
 		u := t.uses[p.key]
-		if u.count >= 2 || u.name != "" {
+		if !inline && (u.count >= 2 || u.name != "") {
 			table[u.id] = StyleEntry{Name: u.name, Value: u.value}
 			return u.id
 		}

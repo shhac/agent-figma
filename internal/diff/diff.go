@@ -64,25 +64,20 @@ type Summary struct {
 var compared = []string{"name", "type", "text", "texts", "size", "pos", "layout", "fills", "strokes", "effects", "radius", "opacity", "component", "props", "text_style", "svg", "export"}
 
 type side struct {
-	store   *cache.NodeStore
 	records map[string]map[string]any
 	order   []string
 }
 
+// load simplifies the subtrees with every style value inline: hoisting
+// depends on what else is in the output, so a value used once in one version
+// and twice in the other would otherwise look like a change.
 func load(store *cache.NodeStore, roots []string) side {
-	res := simplify.Simplify(store, roots, simplify.Options{View: simplify.ViewAll, MaxDepth: cache.Full})
-	s := side{store: store, records: map[string]map[string]any{}}
+	res := simplify.Simplify(store, roots, simplify.Options{View: simplify.ViewAll, MaxDepth: cache.Full, InlineStyles: true})
+	s := side{records: map[string]map[string]any{}}
 	for _, rec := range res.Records {
 		raw, _ := json.Marshal(rec)
 		var m map[string]any
 		_ = json.Unmarshal(raw, &m)
-		for k, v := range m {
-			if id, ok := v.(string); ok {
-				if entry, ok := res.Styles[id]; ok {
-					m[k] = entry.Value
-				}
-			}
-		}
 		s.records[rec.ID] = m
 		s.order = append(s.order, rec.ID)
 	}
@@ -107,36 +102,55 @@ func Compare(before, after *cache.NodeStore, roots []string) ([]Change, Summary)
 		rec := cur.records[id]
 		prev, existed := old.records[id]
 		if !existed {
-			if parent := str(rec["parent"]); !rootSet[id] && cur.records[parent] != nil && old.records[parent] == nil {
-				continue // inside a subtree that was added as a whole
+			if !insideWholeSubtree(id, cur, old, rootSet) {
+				c := newChange(Added, id, rec)
+				c.Descendants = descendants(cur, old, id)
+				add(c, cur)
 			}
-			add(Change{Change: Added, ID: id, Type: str(rec["type"]), Name: str(rec["name"]), Descendants: descendants(cur, id)}, cur)
 			continue
 		}
-		fields := map[string]Delta{}
-		for _, f := range compared {
-			if !reflect.DeepEqual(prev[f], rec[f]) {
-				fields[f] = Delta{From: prev[f], To: rec[f]}
-			}
-		}
 		if !rootSet[id] && str(prev["parent"]) != str(rec["parent"]) {
-			add(Change{Change: Moved, ID: id, Type: str(rec["type"]), Name: str(rec["name"]), Fields: map[string]Delta{"parent": {From: prev["parent"], To: rec["parent"]}}}, cur)
+			c := newChange(Moved, id, rec)
+			c.Fields = map[string]Delta{"parent": {From: prev["parent"], To: rec["parent"]}}
+			add(c, cur)
 		}
-		if len(fields) > 0 {
-			add(Change{Change: Changed, ID: id, Type: str(rec["type"]), Name: str(rec["name"]), Fields: fields}, cur)
+		if fields := fieldDeltas(prev, rec); len(fields) > 0 {
+			c := newChange(Changed, id, rec)
+			c.Fields = fields
+			add(c, cur)
 		}
 	}
 	for _, id := range old.order {
-		if _, still := cur.records[id]; still {
+		if _, still := cur.records[id]; still || insideWholeSubtree(id, old, cur, rootSet) {
 			continue
 		}
-		rec := old.records[id]
-		if parent := str(rec["parent"]); !rootSet[id] && old.records[parent] != nil && cur.records[parent] == nil {
-			continue // inside a subtree that was removed as a whole
-		}
-		add(Change{Change: Removed, ID: id, Type: str(rec["type"]), Name: str(rec["name"]), Descendants: descendants(old, id)}, old)
+		c := newChange(Removed, id, old.records[id])
+		c.Descendants = descendants(old, cur, id)
+		add(c, old)
 	}
 	return changes, summarise(changes, cur, old)
+}
+
+func newChange(kind, id string, rec map[string]any) Change {
+	return Change{Change: kind, ID: id, Type: str(rec["type"]), Name: str(rec["name"])}
+}
+
+func fieldDeltas(prev, rec map[string]any) map[string]Delta {
+	fields := map[string]Delta{}
+	for _, f := range compared {
+		if !reflect.DeepEqual(prev[f], rec[f]) {
+			fields[f] = Delta{From: prev[f], To: rec[f]}
+		}
+	}
+	return fields
+}
+
+// insideWholeSubtree reports a node whose parent appears (or disappears)
+// along with it, so it is counted under that parent's record rather than
+// listed on its own.
+func insideWholeSubtree(id string, here, there side, roots map[string]bool) bool {
+	parent := str(here.records[id]["parent"])
+	return !roots[id] && here.records[parent] != nil && there.records[parent] == nil
 }
 
 // path names the meaningful ancestors under the diff root, root first;
@@ -168,15 +182,18 @@ func path(s side, id string, roots map[string]bool) (string, string) {
 	return strings.Join(names, " › "), frame
 }
 
-func descendants(s side, id string) int {
+// descendants counts the nodes under id on one side that are absent from the
+// other: what was added or removed along with id. A child moved out before
+// its parent was removed is reported as moved, not counted here.
+func descendants(here, there side, id string) int {
 	n := 0
-	for _, rec := range s.records {
-		for p := str(rec["parent"]); p != ""; p = str(s.records[p]["parent"]) {
+	for child, rec := range here.records {
+		if _, elsewhere := there.records[child]; elsewhere {
+			continue
+		}
+		for p := str(rec["parent"]); p != "" && here.records[p] != nil; p = str(here.records[p]["parent"]) {
 			if p == id {
 				n++
-				break
-			}
-			if s.records[p] == nil {
 				break
 			}
 		}

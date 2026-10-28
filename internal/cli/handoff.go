@@ -83,7 +83,7 @@ func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, s
 	node, _ := store.Node(id)
 	dir := out
 	if dir == "" {
-		dir = filepath.Join(session.File.VersionDir(store.Version), "handoff", cache.Slug(node.Name)+"--"+cache.NodeIDSegment(id))
+		dir = filepath.Join(session.File.VersionDir(store.Version), "handoff", cache.Slug(cmpOr(simplify.NewLabeler(store).For(id), node.Name))+"--"+cache.NodeIDSegment(id))
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, agenterrors.Wrap(err, agenterrors.FixableByHuman).WithHint("Check that the handoff folder is writable")

@@ -5,6 +5,7 @@
 package diff
 
 import (
+	"cmp"
 	"encoding/json"
 	"reflect"
 	"slices"
@@ -28,6 +29,7 @@ type Change struct {
 	ID          string           `json:"id"`
 	Type        string           `json:"type"`
 	Name        string           `json:"name,omitempty"`
+	Label       string           `json:"label,omitempty"`
 	Path        string           `json:"path,omitempty"`
 	Fields      map[string]Delta `json:"fields,omitempty"`
 	Descendants int              `json:"descendants,omitempty"`
@@ -98,6 +100,7 @@ func Compare(before, after *cache.NodeStore, roots []string) ([]Change, Summary)
 	var changes []Change
 	add := func(c Change, s side) {
 		c.Path, c.frame = path(s, c.ID, rootSet)
+		c.Label = str(s.records[c.ID]["label"])
 		changes = append(changes, c)
 	}
 	for _, id := range cur.order {
@@ -148,7 +151,7 @@ func path(s side, id string, roots map[string]bool) (string, string) {
 			break
 		}
 		if cur != id {
-			if name := str(rec["name"]); name != "" {
+			if name := cmp.Or(str(rec["label"]), str(rec["name"])); name != "" {
 				names = append(names, name)
 			}
 		}
@@ -203,10 +206,7 @@ func summarise(changes []Change, cur, old side) Summary {
 	}
 	sum.Frames = []Frame{}
 	for _, id := range frames {
-		name := str(cur.records[id]["name"])
-		if name == "" {
-			name = str(old.records[id]["name"])
-		}
+		name := cmp.Or(str(cur.records[id]["label"]), str(cur.records[id]["name"]), str(old.records[id]["label"]), str(old.records[id]["name"]))
 		sum.Frames = append(sum.Frames, Frame{ID: id, Name: name, Changes: counts[id]})
 	}
 	return sum

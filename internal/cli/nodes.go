@@ -233,7 +233,7 @@ func registerNodesFind(parent *cobra.Command, globals *shared.GlobalFlags) {
 
 type findQuery struct{ name, nodeType, page string }
 
-func (q findQuery) match(n figma.Node, pageName string) bool {
+func (q findQuery) match(n figma.Node, pageName, label string) bool {
 	if q.nodeType != "" && !strings.EqualFold(n.Type, q.nodeType) {
 		return false
 	}
@@ -243,9 +243,17 @@ func (q findQuery) match(n figma.Node, pageName string) bool {
 	if q.name == "" {
 		return true
 	}
-	pattern, name := strings.ToLower(q.name), strings.ToLower(n.Name)
-	globbed, _ := path.Match(pattern, name)
-	return globbed || strings.Contains(name, pattern)
+	pattern := strings.ToLower(q.name)
+	for _, candidate := range []string{n.Name, label} {
+		name := strings.ToLower(candidate)
+		if name == "" {
+			continue
+		}
+		if globbed, _ := path.Match(pattern, name); globbed || strings.Contains(name, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // containerTypes are the nodes whose uncached contents make a search incomplete.
@@ -261,6 +269,7 @@ type findResult struct {
 // the rest, and lists containers whose contents are not cached.
 func findNodes(store *cache.NodeStore, q findQuery, limit int) findResult {
 	res := findResult{incomplete: []string{}}
+	labels := simplify.NewLabeler(store)
 	for _, id := range sortedKeys(store.Nodes) {
 		stored := store.Nodes[id]
 		n, ok := store.Node(id)
@@ -274,14 +283,18 @@ func findNodes(store *cache.NodeStore, q findQuery, limit int) findResult {
 		if p, ok := store.Node(stored.Page); ok {
 			pageName = p.Name
 		}
-		if !q.match(n, pageName) {
+		label := ""
+		if q.name != "" {
+			label = labels.For(id)
+		}
+		if !q.match(n, pageName, label) {
 			continue
 		}
 		res.matches++
 		if res.matches > limit {
 			continue
 		}
-		rec := pruned(map[string]any{"id": id, "type": n.Type, "name": n.Name, "page": pageName, "parent": stored.Parent})
+		rec := pruned(map[string]any{"id": id, "type": n.Type, "name": n.Name, "label": cmpOr(label, labels.For(id)), "page": pageName, "parent": stored.Parent})
 		if b := n.AbsoluteBoundingBox; b != nil {
 			rec["size"] = []float64{b.Width, b.Height}
 		}

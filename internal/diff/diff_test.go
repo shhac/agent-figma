@@ -50,7 +50,7 @@ func TestCompare(t *testing.T) {
 	if _, ok := byKey["removed 2:3"]; !ok {
 		t.Fatalf("removal: %+v", changes)
 	}
-	if c, ok := byKey["moved 2:6"]; !ok || !strings.Contains(c.Path, "Card") {
+	if c, ok := byKey["moved 2:6"]; !ok || !strings.Contains(c.Path, "Price") {
 		t.Fatalf("move: %+v", changes)
 	}
 	if sum.Added != 1 || sum.Removed != 1 || sum.Changed != 1 || sum.Moved != 1 {

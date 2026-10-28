@@ -195,3 +195,32 @@ func TestExpandInstancesAndRequestedInstanceRoots(t *testing.T) {
 		t.Fatal("a requested instance root is expanded")
 	}
 }
+
+const labelDoc = `{"id":"0:0","type":"DOCUMENT","name":"Document","children":[{"id":"1:1","type":"CANVAS","name":"Page","children":[
+ {"id":"6:1","type":"FRAME","name":"Card ⭐","children":[
+  {"id":"6:2","type":"TEXT","name":"t","characters":"small print","style":{"fontSize":12}},
+  {"id":"6:3","type":"TEXT","name":"t","characters":"Order summary","style":{"fontSize":20}}]},
+ {"id":"6:4","type":"FRAME","name":"Payment options","children":[{"id":"6:5","type":"TEXT","name":"t","characters":"Pay","style":{"fontSize":20}}]},
+ {"id":"6:6","type":"FRAME","name":"Tile","children":[{"id":"6:7","type":"TEXT","name":"t","characters":"First","style":{"fontSize":16}}]},
+ {"id":"6:8","type":"FRAME","name":"Tile","children":[{"id":"6:9","type":"TEXT","name":"t","characters":"Second","style":{"fontSize":16}}]},
+ {"id":"6:10","type":"FRAME","name":"Tile","children":[{"id":"6:11","type":"TEXT","name":"t","characters":"Third","style":{"fontSize":16}}]}]}]}`
+
+func TestLabelsForGenericAndRepeatedNames(t *testing.T) {
+	s := cache.NewNodeStore("v")
+	if err := s.MergeFile(&figma.FileResponse{Document: json.RawMessage(labelDoc)}, nil, cache.Full); err != nil {
+		t.Fatal(err)
+	}
+	recs := byID(Simplify(s, []string{"1:1"}, Options{View: ViewStructure, MaxDepth: cache.Full}).Records)
+	if recs["6:1"].Label != "Order summary" {
+		t.Fatalf("generic name should get the largest heading: %+v", recs["6:1"])
+	}
+	if recs["6:4"].Label != "" {
+		t.Fatal("a meaningful name keeps no label")
+	}
+	if recs["6:6"].Label != "First" || recs["6:10"].Label != "Third" {
+		t.Fatal("a name shared by 3+ nodes should be told apart by labels")
+	}
+	if !IsGenericName("Group 12") || !IsGenericName("🃏 Card") || IsGenericName("Checkout") {
+		t.Fatal("generic name detection")
+	}
+}

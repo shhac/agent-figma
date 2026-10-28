@@ -107,7 +107,7 @@ func trimFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 // writeImages prints manifest lines, copying into out when given.
 func writeImages(stream *output.Stream, images []fetch.Image, out string, urlOnly bool) error {
 	for _, img := range images {
-		rec := pruned(map[string]any{"id": img.ID, "name": img.Name, "page": img.Page, "format": img.Format, "scale": img.Scale, "source": img.Source})
+		rec := pruned(map[string]any{"id": img.ID, "name": img.Name, "label": img.Label, "page": img.Page, "format": img.Format, "scale": img.Scale, "source": img.Source})
 		if urlOnly {
 			rec["url"] = img.URL
 			stream.Item(rec)

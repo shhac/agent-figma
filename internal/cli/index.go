@@ -103,6 +103,7 @@ func writeOutlineEntries(stream *output.Stream, store *cache.NodeStore) {
 	if root == nil {
 		return
 	}
+	labels := simplify.NewLabeler(store)
 	for _, pageID := range root.Children {
 		page, ok := store.Node(pageID)
 		if !ok {
@@ -115,7 +116,7 @@ func writeOutlineEntries(stream *output.Stream, store *cache.NodeStore) {
 			if !ok || !frame.IsVisible() {
 				continue
 			}
-			rec := map[string]any{"kind": "frame", "id": frameID, "type": frame.Type, "name": frame.Name, "page": page.Name}
+			rec := pruned(map[string]any{"kind": "frame", "id": frameID, "type": frame.Type, "name": frame.Name, "label": labels.For(frameID), "page": page.Name})
 			if frame.AbsoluteBoundingBox != nil {
 				rec["size"] = []float64{frame.AbsoluteBoundingBox.Width, frame.AbsoluteBoundingBox.Height}
 			}

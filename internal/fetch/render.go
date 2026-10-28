@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -14,6 +15,7 @@ import (
 	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/figma"
+	"github.com/shhac/agent-figma/internal/simplify"
 )
 
 const (
@@ -68,6 +70,7 @@ func (r RenderRequest) optionKey() string {
 type Image struct {
 	ID     string  `json:"id"`
 	Name   string  `json:"name,omitempty"`
+	Label  string  `json:"label,omitempty"`
 	Page   string  `json:"page,omitempty"`
 	Path   string  `json:"path,omitempty"`
 	URL    string  `json:"url,omitempty"`
@@ -345,7 +348,8 @@ func (s *Session) describeImage(known *cache.NodeStore, version, id, url string,
 	dir := "renders"
 	if n, ok := known.Node(id); ok {
 		img.Name = n.Name
-		file = cache.Slug(n.Name) + "--" + file
+		img.Label = simplify.NewLabeler(known).For(id)
+		file = cache.Slug(cmp.Or(img.Label, n.Name)) + "--" + file
 		if stored := known.Nodes[id]; stored != nil {
 			if page, ok := known.Node(stored.Page); ok {
 				img.Page = page.Name

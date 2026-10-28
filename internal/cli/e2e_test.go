@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shhac/agent-figma/internal/cache"
 	"github.com/shhac/agent-figma/internal/mockfigma"
 )
 
@@ -705,5 +706,23 @@ func TestRevokedTokenBeforeExpiryNudges(t *testing.T) {
 	r := run(t, "file", "meta", fileKey)
 	if hint, _ := r.errJSON(t)["hint"].(string); !strings.Contains(hint, "auth update work --form --expires") {
 		t.Fatalf("expected a re-auth nudge: %s", r.stderr)
+	}
+}
+
+func TestGenericNamesGetLabels(t *testing.T) {
+	mockEnv(t)
+	r := mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout, "--view", "structure")
+	card := r.records(t)[mockfigma.NodeCard]
+	if card["label"] == nil || card["name"] != "Card" {
+		t.Fatalf("a frame named Card should carry a label: %v", card)
+	}
+	label := card["label"].(string)
+	r = mustRun(t, "render", fileKey, "--node", mockfigma.NodeCard, "--no-prefetch")
+	if path := r.records(t)[mockfigma.NodeCard]["path"].(string); !strings.Contains(path, cache.Slug(label)+"--") {
+		t.Fatalf("render file should be named by the label %q: %s", label, path)
+	}
+	r = mustRun(t, "nodes", "find", fileKey, "--name", strings.ToLower(label))
+	if r.records(t)[mockfigma.NodeCard] == nil {
+		t.Fatalf("find should match the label: %s", r.stdout)
 	}
 }

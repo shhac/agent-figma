@@ -44,7 +44,11 @@ defaults to the cache; --out writes elsewhere.`,
 				return err
 			}
 			return shared.WithSession(cmd.Context(), globals, ref, func(ctx context.Context, session *fetch.Session) error {
-				files, err := buildHandoff(ctx, session, ref.NodeIDs[0], out, scale)
+				m, err := loadMapping(globals)
+				if err != nil {
+					return err
+				}
+				files, err := buildHandoff(ctx, session, ref.NodeIDs[0], out, scale, m)
 				if err != nil {
 					return err
 				}
@@ -69,7 +73,7 @@ type handoffFile struct {
 	kind, name, src, rel string
 }
 
-func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, scale float64) ([]map[string]any, error) {
+func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, scale float64, m mapping) ([]map[string]any, error) {
 	res, err := session.Nodes(ctx, []string{id}, cache.Full)
 	if err != nil {
 		return nil, err
@@ -80,6 +84,7 @@ func buildHandoff(ctx context.Context, session *fetch.Session, id, out string, s
 	}
 	store := res.Store
 	tree := simplify.Simplify(store, []string{id}, simplify.Options{View: simplify.ViewAll, MaxDepth: cache.Full})
+	m.annotate(&tree, store)
 	node, _ := store.Node(id)
 	dir := out
 	if dir == "" {

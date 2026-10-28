@@ -72,6 +72,9 @@ func registerLibrary(root *cobra.Command, globals *shared.GlobalFlags) {
 				})
 			},
 		})
+		if g.kind == fetch.KindComponents {
+			registerComponentMap(group, globals)
+		}
 		root.AddCommand(group)
 	}
 }

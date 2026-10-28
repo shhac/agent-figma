@@ -14,20 +14,26 @@ const maxVariantNodes = 10
 // ComponentUse is one component set (or standalone component) used in the
 // output, with the variants used and where.
 type ComponentUse struct {
-	Set            string       `json:"set,omitempty"`
-	Component      string       `json:"component,omitempty"`
-	ComponentSetID string       `json:"component_set_id,omitempty"`
-	ComponentID    string       `json:"component_id,omitempty"`
-	Remote         bool         `json:"remote,omitempty"`
-	Count          int          `json:"count"`
-	Variants       []VariantUse `json:"variants,omitempty"`
-	variantIndex   map[string]int
+	Set            string `json:"set,omitempty"`
+	Component      string `json:"component,omitempty"`
+	ComponentSetID string `json:"component_set_id,omitempty"`
+	ComponentID    string `json:"component_id,omitempty"`
+	SetKey         string `json:"set_key,omitempty"`
+	Key            string `json:"key,omitempty"`
+	Remote         bool   `json:"remote,omitempty"`
+	Count          int    `json:"count"`
+	// Mapped and Code come from the repository's component mapping.
+	Mapped       *bool          `json:"mapped,omitempty"`
+	Code         map[string]any `json:"code,omitempty"`
+	Variants     []VariantUse   `json:"variants,omitempty"`
+	variantIndex map[string]int
 }
 
 type VariantUse struct {
-	Props map[string]any `json:"props,omitempty"`
-	Count int            `json:"count"`
-	Nodes []string       `json:"nodes"`
+	Props     map[string]any `json:"props,omitempty"`
+	CodeProps map[string]any `json:"code_props,omitempty"`
+	Count     int            `json:"count"`
+	Nodes     []string       `json:"nodes"`
 }
 
 type componentUses struct {
@@ -43,11 +49,11 @@ func newComponentUses(store *cache.NodeStore) *componentUses {
 // is not a variant.
 func (u *componentUses) add(id string, n figma.Node) {
 	c, known := u.store.Components[n.ComponentID]
-	use := &ComponentUse{ComponentID: n.ComponentID, Component: c.Name, Remote: c.Remote}
+	use := &ComponentUse{ComponentID: n.ComponentID, Component: c.Name, Key: c.Key, Remote: c.Remote}
 	key := "c:" + n.ComponentID
 	if set, ok := u.store.ComponentSets[c.ComponentSetID]; known && ok {
 		key = "s:" + c.ComponentSetID
-		use = &ComponentUse{Set: set.Name, ComponentSetID: c.ComponentSetID, Remote: set.Remote}
+		use = &ComponentUse{Set: set.Name, ComponentSetID: c.ComponentSetID, SetKey: set.Key, Remote: set.Remote}
 	}
 	if existing, ok := u.byKey[key]; ok {
 		use = existing

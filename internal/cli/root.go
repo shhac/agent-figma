@@ -39,6 +39,7 @@ func newRootCmd(version string) *cobra.Command {
 	pf.BoolVar(&globals.Refresh, "refresh", false, "Re-check the file's version now and refetch if it changed")
 	pf.BoolVar(&globals.Offline, "offline", false, "Never call Figma; answer from the cache or fail")
 	pf.BoolVar(&globals.NoPrefetch, "no-prefetch", false, "Request only what was asked for, without widening Tier 1 calls")
+	pf.StringVar(&globals.ComponentsFile, "components-file", "", "Component-to-code mapping (default: the nearest .agent-figma/components.json, or AGENT_FIGMA_COMPONENTS)")
 	_ = pf.MarkHidden("base-url")
 
 	registerUsageCommand(root)

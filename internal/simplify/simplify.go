@@ -45,21 +45,24 @@ type Record struct {
 	Name   string `json:"name,omitempty"`
 	// Label is the most prominent heading under a generically named
 	// container, so "Card" reads as what it shows.
-	Label     string              `json:"label,omitempty"`
-	Size      []float64           `json:"size,omitempty"`
-	Pos       []float64           `json:"pos,omitempty"`
-	Layout    any                 `json:"layout,omitempty"`
-	Fills     any                 `json:"fills,omitempty"`
-	Strokes   any                 `json:"strokes,omitempty"`
-	Effects   any                 `json:"effects,omitempty"`
-	Radius    any                 `json:"radius,omitempty"`
-	Opacity   *float64            `json:"opacity,omitempty"`
-	Text      string              `json:"text,omitempty"`
-	TextStyle any                 `json:"text_style,omitempty"`
-	Component *ComponentRef       `json:"component,omitempty"`
-	Props     map[string]any      `json:"props,omitempty"`
-	Variants  map[string][]string `json:"variant_props,omitempty"`
-	Export    bool                `json:"export,omitempty"`
+	Label     string        `json:"label,omitempty"`
+	Size      []float64     `json:"size,omitempty"`
+	Pos       []float64     `json:"pos,omitempty"`
+	Layout    any           `json:"layout,omitempty"`
+	Fills     any           `json:"fills,omitempty"`
+	Strokes   any           `json:"strokes,omitempty"`
+	Effects   any           `json:"effects,omitempty"`
+	Radius    any           `json:"radius,omitempty"`
+	Opacity   *float64      `json:"opacity,omitempty"`
+	Text      string        `json:"text,omitempty"`
+	TextStyle any           `json:"text_style,omitempty"`
+	Component *ComponentRef `json:"component,omitempty"`
+	// Code is the mapped code component for an instance, when the
+	// repository maps its component.
+	Code     map[string]any      `json:"code,omitempty"`
+	Props    map[string]any      `json:"props,omitempty"`
+	Variants map[string][]string `json:"variant_props,omitempty"`
+	Export   bool                `json:"export,omitempty"`
 	// SVG marks a vector, or a container of only vectors, best exported as
 	// one SVG; its children are not listed.
 	SVG bool `json:"svg,omitempty"`

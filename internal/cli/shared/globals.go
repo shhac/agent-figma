@@ -17,4 +17,6 @@ type GlobalFlags struct {
 	Refresh    bool
 	Offline    bool
 	NoPrefetch bool
+	// ComponentsFile overrides where the component-to-code mapping is read.
+	ComponentsFile string
 }

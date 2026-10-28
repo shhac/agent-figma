@@ -62,11 +62,17 @@ set and sibling variants, main components) with what reading them would cost, @p
 				if raw {
 					return writeRaw(globals, session, res, ref.NodeIDs, depth)
 				}
+				m, err := loadMapping(globals)
+				if err != nil {
+					return err
+				}
 				if view == viewComponents {
 					result := simplify.Simplify(res.Store, ref.NodeIDs, simplify.Options{View: simplify.ViewStructure, MaxDepth: depth, ExpandInstances: expand})
+					m.annotate(&result, res.Store)
 					return writeComponents(globals, session, result.Components, res.Missing)
 				}
 				result := simplify.Simplify(res.Store, ref.NodeIDs, simplify.Options{View: simplify.View(view), MaxDepth: depth, MaxNodes: maxNodes, ExpandInstances: expand})
+				m.annotate(&result, res.Store)
 				return writeNodes(globals, session, result, res.Missing, fetch.RelatedTo(res.Store, ref.NodeIDs))
 			})
 		},

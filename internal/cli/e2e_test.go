@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -724,5 +725,50 @@ func TestGenericNamesGetLabels(t *testing.T) {
 	r = mustRun(t, "nodes", "find", fileKey, "--name", strings.ToLower(label))
 	if r.records(t)[mockfigma.NodeCard] == nil {
 		t.Fatalf("find should match the label: %s", r.stdout)
+	}
+}
+
+func TestComponentMapping(t *testing.T) {
+	mockEnv(t)
+	repo := t.TempDir()
+	mapFile := filepath.Join(repo, ".agent-figma", "components.json")
+	t.Setenv("AGENT_FIGMA_COMPONENTS", mapFile)
+
+	// Without a mapping file, output is unannotated.
+	r := mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout, "--view", "components")
+	if strings.Contains(r.stdout, `"mapped"`) {
+		t.Fatalf("no mapping file, no annotations: %s", r.stdout)
+	}
+	r = mustRun(t, "components", "map", "status", fileKey, "--node", mockfigma.NodeCheckout)
+	if !strings.Contains(r.stdout, `"mapped":false`) || !strings.Contains(r.stdout, mockfigma.ButtonSetKey) {
+		t.Fatalf("status should list the unmapped set with its key: %s", r.stdout)
+	}
+
+	// suggest finds the code component; --write saves exact matches.
+	src := filepath.Join(repo, "src", "ui", "button.tsx")
+	_ = os.MkdirAll(filepath.Dir(src), 0o755)
+	_ = os.WriteFile(src, []byte("export function Button() { return null }\n"), 0o644)
+	r = mustRun(t, "components", "map", "suggest", fileKey, "--node", mockfigma.NodeCheckout, "--src", repo, "--write")
+	if !strings.Contains(r.stdout, `"match":"exact"`) {
+		t.Fatalf("suggest: %s", r.stdout)
+	}
+
+	// add refines the entry with prop mappings.
+	mustRun(t, "components", "map", "add", "--set-key", mockfigma.ButtonSetKey, "--name", "Button", "--component", "Button",
+		"--import", "@/ui/button", "--prop", "Size=size", "--value", "Size.md=default", "--ignore", "State")
+	r = mustRun(t, "nodes", "get", fileKey, "--node", mockfigma.NodeCheckout)
+	uses, _ := r.meta(t, "@components").([]any)
+	use := uses[0].(map[string]any)
+	code, _ := use["code"].(map[string]any)
+	if use["mapped"] != true || code["import"] != "@/ui/button" {
+		t.Fatalf("@components should carry the mapping: %v", use)
+	}
+	props := use["variants"].([]any)[0].(map[string]any)["code_props"].(map[string]any)
+	if props["size"] != "default" || props["State"] != nil {
+		t.Fatalf("code props: %v", props)
+	}
+	inst := r.records(t)[mockfigma.NodeButtonInstance]
+	if instCode, _ := inst["code"].(map[string]any); instCode["component"] != "Button" {
+		t.Fatalf("instance records should carry the mapped component: %v", inst)
 	}
 }

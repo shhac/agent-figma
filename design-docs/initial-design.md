@@ -78,7 +78,7 @@ agent-figma nodes get <ref> [--node id...] [--depth N] [--view all|layout|text|v
 agent-figma nodes find <ref> [--name glob] [--type T] [--page name]     over the cache
 agent-figma render <ref> --node id... [--as png|jpg|svg|pdf] [--scale N] [--out dir] [--url-only] [--with-related]
 agent-figma assets fills <ref> [--node id] [--out dir]
-agent-figma assets export <ref> [--node id] [--out dir]  nodes with designer export settings
+agent-figma assets export <ref> --node id... [--out dir]  nodes with designer export settings
 agent-figma components list <ref>  ·  components get <key>...
 agent-figma component-sets list <ref>  ·  component-sets get <key>...
 agent-figma styles list <ref>  ·  styles get <key>...
@@ -94,7 +94,7 @@ agent-figma mcp
 
 The image type flag is `--as`, not `--format`: `--format/-f` is the family's persistent output-format flag.
 
-Global flags: `--profile/-p`, `--token` (hidden from MCP, never echoed), `--format ndjson|json|yaml`, `--timeout`, `--debug`, `--max-retries`, `--max-wait`, `--refresh` (revalidate the cache now), `--offline` (never call Figma; answer from cache or fail), `--no-prefetch`. `--base-url` (hidden) and `AGENT_FIGMA_BASE_URL` point at the mock server.
+Global flags: `--profile/-p`, `--token` (hidden from MCP, never echoed), `--format json|yaml|jsonl` (NDJSON when omitted), `--timeout`, `--debug`, `--max-retries`, `--max-wait`, `--refresh` (revalidate the cache now), `--offline` (never call Figma; answer from cache or fail), `--no-prefetch`. `--base-url` (hidden) and `AGENT_FIGMA_BASE_URL` point at the mock server.
 
 Key routing: reads that accept a branch key (file, nodes, images, image fills, meta, versions, comments) get the branch key when the link has one; library endpoints (`components`, `component_sets`, `styles`) and `dev_resources` require the main file key, so they get `file_key` from the link. A bare key is used as given everywhere.
 
@@ -108,8 +108,8 @@ Metadata lines used across commands:
 
 - `@file` — `{key, branch_key?, name, version, last_modified, editor_type, stale?, latest_version?}` for the file a command read. `stale: true` means the answer came from an older cached version (see Freshness).
 - `@styles` — the shared style table for simplified nodes (below).
-- `@related` — one per related item: `{rel, id, name?, type?, props?, render?, cost}`. `rel` is `variant|component_set|main_component|child|ancestor|page|render|fill`. `cost` tells the agent what fetching it would spend: `cached` (free), `download` (CDN only, no API budget), `tier3`, `tier2`, `tier1`.
-- `@pagination` — the family shape `{has_more, next_cursor}`. For node output cut by `--max-nodes` (default 400), `next_cursor` is a comma-separated list of the node ids whose subtrees were cut; pass it back as `--node` to continue. For Figma's paginated lists (versions) it is Figma's cursor, passed back as `--cursor`.
+- `@related` — one per related item: `{rel, id, name?, type?, props?, render?, cost}`. `rel` is `variant|component_set|main_component|ancestor|page|render`. `cost` tells the agent what fetching it would spend: `cached` (free), `download` (CDN only, no API budget), or `tier1`.
+- `@pagination` — the family shape `{has_more, next_cursor}`. For node output, `next_cursor` is a comma-separated list of the node ids still to print: those `--max-nodes` (default 400) left out, and nodes whose children were never fetched because Figma refused the subtree as too large. Passing it back as `--node` continues forward; following it to the end walks the cached subtree with no further Tier 1 calls. For Figma's paginated lists (versions) it is Figma's cursor, passed back as `--cursor`.
 - `@unresolved` — the `lib-agent-cli` `EntityGet` shape `{id, reason, fixable_by, hint, retry_after_seconds}`, in input position, exit 0; used for ids Figma returned as null and for `get <key>...` misses.
 - `@budget` — `{calls: {tier1, tier2, tier3}, cache_hits, prefetched: {nodes, renders}}` at the end of every command that could touch Figma.
 
@@ -124,7 +124,7 @@ Metadata lines used across commands:
 Rules, adapted from Framelink's simplifier:
 
 - Drop invisible nodes. Drop auto-generated names (`Frame 12`, `Rectangle 3`, …) and TEXT layer names (the text itself is kept).
-- Collapse a container whose children are all vector-like into one `SVG` leaf (except auto-layout containers with fewer than 10 children).
+- Collapse a container whose children are all vector-like into one leaf marked `svg: true` (except auto-layout containers with fewer than 10 children). It keeps its Figma type, so a collapsed icon component is still a `COMPONENT`; `VECTOR` nodes are also marked `svg: true`.
 - Layout as flex/grid vocabulary: `mode` (`row|column|grid|none`), `gap`, CSS-shorthand `padding`, `justify`, `align`, `wrap`, `sizing` (`fill|hug|fixed`). Children outside auto-layout flow get `pos: [x, y]` relative to the parent; raw absolute boxes are not emitted.
 - Paints as CSS-ish strings (`#RRGGBB`, `rgba(…)`, `linear-gradient(…)`); image paints as `{image_ref, scale_mode}`.
 - Text: `text` content plus a `text_style` reference (family, weight, size, line height, letter spacing, alignment).
@@ -156,13 +156,14 @@ Per file version (`<cache>/<profile>/<file_key>/v-<version>/`):
 - `renders.json` — `(node_id, format, scale, options) → {url, fetched_at}` or a recorded null. Render URLs expire after 30 days; treat them as stale after 29.
 - `fills.json` — `image_ref → {url, fetched_at}` from the one Tier 2 call; stale after 13 days.
 - `library.json` — the Tier 3 components, component sets, and styles lists.
+- The node store also records ids Figma said this version does not have (`missing`), so asking about a deleted or mistyped node again costs nothing; the mark clears if the node later arrives.
 - downloaded renders and fills.
 
 Per file (`<cache>/<profile>/<file_key>/head.json`): the latest known `version`, `checked_at`, and name. Content is always filed under the `version` the Tier 1 response reports, not the one a freshness check predicted, so an edit between the two cannot mix versions. Only the newest 3 version directories per file are kept. Writes to cache files go through `creds.Store`-style locked read-modify-write so parallel processes merge rather than clobber.
 
 **Freshness.** A command first decides which version is current. If `head.json` was checked within `cache_fresh_s` (default 300), use its version. Otherwise call `GET /v1/files/:key/meta` (Tier 3; the response is `{file: {...}}` and `version` is optional there) and compare `version`.
 
-A file being edited changes version constantly, and on a `low` seat refetching after every edit would burn the monthly Tier 1 allowance. So when the current version has nothing cached but an older version can answer, `serve_stale` decides: `on` answers from the older version with `@file.stale: true` and `latest_version`; `off` refetches; `auto` (default) is `on` for `low` seats and `off` otherwise. `--refresh` forces the check and a refetch; `--offline` never calls Figma and uses the newest cached version for the selected profile and the key the ref resolves to. If `/meta` fails (403 for a missing `file_metadata:read`, or no `version`), the command treats the cache as unvalidated, fetches, and emits a notice suggesting the scope.
+A file being edited changes version constantly, and on a `low` seat refetching after every edit would burn the monthly Tier 1 allowance. So when the current version has nothing cached but an older version can answer, `serve_stale` decides: `on` answers from the older version with `@file.stale: true` and `latest_version`; `off` refetches; `auto` (default) is `on` for `low` seats and `off` otherwise. `--refresh` forces the check and a refetch, and is never answered from an older version; `--offline` never calls Figma and uses the newest cached version for the selected profile and the key the ref resolves to. If `/meta` fails (403 for a missing `file_metadata:read`, or no `version`), the command treats the cache as unvalidated, fetches, and emits a notice suggesting the scope.
 
 A query is answered from the node store when the requested subtree is present to the requested depth; otherwise it fetches. `cache status` reports what is cached per file and version; `cache clear` removes it.
 
@@ -172,7 +173,7 @@ Because cost is per request, each Tier 1 call should carry the ids an agent is l
 
 Node fetches:
 
-- With no `--depth`, fetch with `GET /v1/files/:key?ids=…` rather than `/nodes`: same tier, but it also returns the ancestor chain, all pages, and the local components the subtree depends on. `depth` on that endpoint counts from the document root, so when a depth is requested use `/v1/files/:key/nodes?ids=…&depth=N` (relative to each node). If Figma answers `400 Request too large`, fall back to `/nodes` with depth 4, then 2, and report the cut in `@pagination`.
+- With no `--depth`, fetch with `GET /v1/files/:key?ids=…` rather than `/nodes`: same tier, but it also returns the ancestor chain, all pages, and the local components the subtree depends on. `depth` on that endpoint counts from the document root, so when a depth is requested use `/v1/files/:key/nodes?ids=…&depth=N` (relative to each node). If Figma answers `400 Request too large`, fall back to `/nodes` with depth 4, then 2, then 1, note the cut on stderr, and list the depth-limited nodes in `@pagination.next_cursor`.
 - Add, in the same call, ids the cache already knows are related and not yet cached: the component set of a requested variant (its subtree holds every sibling variant), and the local main component and set behind an instance. Which set a variant belongs to comes from the node store when the variant's parent is known, or from the cached Tier 3 library (`containing_frame.containingComponentSet`), which knows it before any Tier 1 call; `file index` or `components list` populates it. On a cold first touch of an unpublished variant nothing is known, so the widening pays off from the next call. At most 10 extra ids, since each extra id brings its whole subtree.
 - When the fallback cut a subtree, the command emits a notice naming the ids and the records carry `truncated: true`.
 
@@ -184,7 +185,9 @@ Renders:
 
 Image fills: the Tier 2 call always returns the whole file's map; cache all of it.
 
-Library: `file index` makes the Tier 3 calls (meta, components, component sets, styles) and, if the node store has no structure for the file, one `depth=2` Tier 1 call. Published components and their thumbnails let an agent see variants without any render. Unpublished components are only known once the node store has them.
+Related renders are planned from the cache whether or not the requested render needs a call: uncached ones ride along on a call that is happening anyway, cached ones are listed as `cost: download`, and `--with-related` downloads them, spending a render call of its own only when their URLs are not cached. A failed download forgets that URL under the cache lock, so the next run renders afresh.
+
+Library: `file index` makes the Tier 3 calls (meta, components, component sets, styles) and, if the node store has no structure for the file, one Tier 1 call at the depth a default `file outline` uses (3 from the root), so the two together cost one Tier 1 call. Published components and their thumbnails let an agent see variants without any render. Unpublished components are only known once the node store has them.
 
 Guardrails:
 
@@ -203,6 +206,8 @@ Guardrails:
 - **Pacing.** A sliding 60-second window of request timestamps per bucket; when the window is full for the effective budget (seat class × plan, defaults `high` × `pro`), the next request waits for room (same `--max-wait` rule). The lock is held only to read and update state, never while sleeping. Tier 1 on `low` seats and on Starter files is not paced per minute (the budget is monthly); instead every such call emits a notice with a persisted count of Tier 1 calls this calendar month (UTC).
 - **Retries.** 429s honour `Retry-After` exactly and do not consume `--max-retries`, but the total time spent waiting on 429s within one request is capped at `--max-wait`; a wait above it returns immediately. 5xx (except render failures), 408, and transport errors retry with jittered exponential backoff up to `--max-retries` (default 2).
 - **The error.** A 429 that is not waited out returns `fixable_by: retry` (or `human` when `rate_limit_type` is `low`, since only a seat change helps) with `retry_after_seconds` and a hint carrying the plan tier, rate-limit type, upgrade link, and whether an older cached version can be read with `--offline`.
+
+Uncached reads (variables, comments, versions, dev resources) go through the same session pipeline for key routing and end with `@budget`. Variable records use snake_case keys, mode names rather than mode ids, CSS colours, and `{alias: <variable id>}` for aliases, matching node records.
 
 ## Errors worth special handling
 

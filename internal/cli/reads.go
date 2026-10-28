@@ -2,8 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -11,153 +11,234 @@ import (
 
 	"github.com/shhac/agent-figma/internal/api"
 	"github.com/shhac/agent-figma/internal/cli/shared"
-	"github.com/shhac/agent-figma/internal/figmaurl"
+	"github.com/shhac/agent-figma/internal/fetch"
+	"github.com/shhac/agent-figma/internal/figma"
 	"github.com/shhac/agent-figma/internal/output"
+	"github.com/shhac/agent-figma/internal/simplify"
 )
 
-// fileRead runs a simple read of one file-scoped endpoint and streams records.
-func fileRead(cmd *cobra.Command, globals *shared.GlobalFlags, arg string, nodes []string, run func(ctx context.Context, r *shared.Resolved, ref figmaurl.Ref, stream *output.Stream) error) error {
+// fileRead runs a read of one file-scoped endpoint that is not cached: the
+// session supplies key routing and the @budget line.
+func fileRead(cmd *cobra.Command, globals *shared.GlobalFlags, arg string, nodes []string, run func(ctx context.Context, s *fetch.Session, stream *output.Stream) error) error {
 	ref, err := shared.ParseRef(arg, nodes)
 	if err != nil {
 		return err
 	}
 	return shared.WithClient(cmd.Context(), globals, func(ctx context.Context, r *shared.Resolved) error {
+		session := shared.NewSession(r, globals, ref)
 		stream, err := output.NewStream(globals.Format)
 		if err != nil {
 			return err
 		}
-		if err := run(ctx, r, ref, stream); err != nil {
+		if err := run(ctx, session, stream); err != nil {
 			return err
 		}
-		return stream.Close()
+		return shared.Finish(stream, session)
 	})
 }
 
 func registerReads(root *cobra.Command, globals *shared.GlobalFlags) {
+	registerVariables(root, globals)
+	registerComments(root, globals)
+	registerVersions(root, globals)
+	registerDevResources(root, globals)
+}
+
+type variableCollection struct {
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Key                  string `json:"key"`
+	DefaultModeID        string `json:"defaultModeId"`
+	Remote               bool   `json:"remote"`
+	HiddenFromPublishing bool   `json:"hiddenFromPublishing"`
+	Modes                []struct {
+		ModeID string `json:"modeId"`
+		Name   string `json:"name"`
+	} `json:"modes"`
+}
+
+type variable struct {
+	ID                   string                     `json:"id"`
+	Name                 string                     `json:"name"`
+	Key                  string                     `json:"key"`
+	VariableCollectionID string                     `json:"variableCollectionId"`
+	ResolvedType         string                     `json:"resolvedType"`
+	Description          string                     `json:"description"`
+	Scopes               []string                   `json:"scopes"`
+	Remote               bool                       `json:"remote"`
+	CodeSyntax           map[string]string          `json:"codeSyntax"`
+	ValuesByMode         map[string]json.RawMessage `json:"valuesByMode"`
+}
+
+func registerVariables(root *cobra.Command, globals *shared.GlobalFlags) {
 	var published bool
-	variables := &cobra.Command{Use: "variables", Short: "Variables and collections (Enterprise plans only)"}
-	variables.AddCommand(&cobra.Command{
+	group := &cobra.Command{Use: "variables", Short: "Variables and collections (Enterprise plans only)"}
+	list := &cobra.Command{
 		Use:   "list <ref>",
 		Short: "List collections and variables with their values per mode (Tier 2)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fileRead(cmd, globals, args[0], nil, func(ctx context.Context, r *shared.Resolved, ref figmaurl.Ref, stream *output.Stream) error {
+			return fileRead(cmd, globals, args[0], nil, func(ctx context.Context, s *fetch.Session, stream *output.Stream) error {
 				which := "local"
 				if published {
 					which = "published"
 				}
-				raw, err := r.Client.Get(ctx, "/v1/files/"+ref.Key()+"/variables/"+which, nil)
+				raw, err := s.Client.Get(ctx, "/v1/files/"+s.Key()+"/variables/"+which, nil)
 				if err != nil {
 					return err
 				}
 				resp, err := api.Decode[struct {
 					Meta struct {
-						Variables           map[string]map[string]any `json:"variables"`
-						VariableCollections map[string]map[string]any `json:"variableCollections"`
+						Variables           map[string]variable           `json:"variables"`
+						VariableCollections map[string]variableCollection `json:"variableCollections"`
 					} `json:"meta"`
 				}](raw, "variables")
 				if err != nil {
 					return err
 				}
-				modeNames := map[string]string{}
-				for _, id := range sortedAnyKeys(resp.Meta.VariableCollections) {
-					c := resp.Meta.VariableCollections[id]
-					if modes, ok := c["modes"].([]any); ok {
-						for _, m := range modes {
-							if mm, ok := m.(map[string]any); ok {
-								modeNames[str(mm["modeId"])] = str(mm["name"])
-							}
-						}
-					}
-					rec := pick(c, "id", "name", "key", "modes", "defaultModeId", "remote", "hiddenFromPublishing")
-					rec["kind"] = "collection"
-					stream.Item(rec)
+				collections := resp.Meta.VariableCollections
+				for _, id := range sortedKeys(collections) {
+					stream.Item(collectionRecord(collections[id]))
 				}
-				for _, id := range sortedAnyKeys(resp.Meta.Variables) {
-					v := resp.Meta.Variables[id]
-					rec := pick(v, "id", "name", "key", "variableCollectionId", "resolvedType", "description", "scopes", "remote", "codeSyntax")
-					rec["kind"] = "variable"
-					if values, ok := v["valuesByMode"].(map[string]any); ok {
-						byName := map[string]any{}
-						for mode, val := range values {
-							name := modeNames[mode]
-							if name == "" {
-								name = mode
-							}
-							byName[name] = val
-						}
-						rec["values"] = byName
-					}
-					stream.Item(rec)
-				}
-				return nil
-			})
-		},
-	})
-	variables.PersistentFlags().BoolVar(&published, "published", false, "List variables published from this file instead of local ones")
-	root.AddCommand(variables)
-
-	var asMarkdown bool
-	comments := &cobra.Command{Use: "comments", Short: "File comments (read-only)"}
-	commentsList := &cobra.Command{
-		Use:   "list <ref>",
-		Short: "List a file's comments, with the node each is pinned to (Tier 2)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fileRead(cmd, globals, args[0], nil, func(ctx context.Context, r *shared.Resolved, ref figmaurl.Ref, stream *output.Stream) error {
-				q := url.Values{}
-				if asMarkdown {
-					q.Set("as_md", "true")
-				}
-				raw, err := r.Client.Get(ctx, "/v1/files/"+ref.Key()+"/comments", q)
-				if err != nil {
-					return err
-				}
-				resp, err := api.Decode[struct {
-					Comments []map[string]any `json:"comments"`
-				}](raw, "comments")
-				if err != nil {
-					return err
-				}
-				for _, c := range resp.Comments {
-					rec := pick(c, "id", "message", "created_at", "resolved_at", "parent_id", "order_id")
-					if u, ok := c["user"].(map[string]any); ok {
-						rec["user"] = u["handle"]
-					}
-					if meta, ok := c["client_meta"].(map[string]any); ok {
-						if node := meta["node_id"]; node != nil {
-							rec["node_id"] = node
-						}
-					}
-					stream.Item(rec)
+				for _, id := range sortedKeys(resp.Meta.Variables) {
+					stream.Item(variableRecord(resp.Meta.Variables[id], collections))
 				}
 				return nil
 			})
 		},
 	}
-	commentsList.Flags().BoolVar(&asMarkdown, "as-md", false, "Return comment text as markdown")
-	comments.AddCommand(commentsList)
-	root.AddCommand(comments)
+	list.Flags().BoolVar(&published, "published", false, "List variables published from this file instead of local ones")
+	group.AddCommand(list)
+	root.AddCommand(group)
+}
 
-	var limit int
-	var cursor string
-	versions := &cobra.Command{Use: "versions", Short: "File version history"}
-	versionsList := &cobra.Command{
+func collectionRecord(c variableCollection) map[string]any {
+	modes := make([]map[string]string, 0, len(c.Modes))
+	defaultMode := ""
+	for _, m := range c.Modes {
+		modes = append(modes, map[string]string{"id": m.ModeID, "name": m.Name})
+		if m.ModeID == c.DefaultModeID {
+			defaultMode = m.Name
+		}
+	}
+	return pruned(map[string]any{
+		"kind": "collection", "id": c.ID, "name": c.Name, "key": c.Key, "modes": modes,
+		"default_mode": defaultMode, "remote": c.Remote, "hidden_from_publishing": c.HiddenFromPublishing,
+	})
+}
+
+// variableRecord names each value by its mode and renders colours and
+// aliases the way node records do.
+func variableRecord(v variable, collections map[string]variableCollection) map[string]any {
+	c := collections[v.VariableCollectionID]
+	modeName := map[string]string{}
+	for _, m := range c.Modes {
+		modeName[m.ModeID] = m.Name
+	}
+	values := map[string]any{}
+	for mode, raw := range v.ValuesByMode {
+		values[cmpOr(modeName[mode], mode)] = variableValue(raw)
+	}
+	return pruned(map[string]any{
+		"kind": "variable", "id": v.ID, "name": v.Name, "key": v.Key,
+		"collection_id": v.VariableCollectionID, "collection": c.Name, "type": strings.ToLower(v.ResolvedType),
+		"description": v.Description, "scopes": v.Scopes, "remote": v.Remote, "code_syntax": v.CodeSyntax, "values": values,
+	})
+}
+
+func variableValue(raw json.RawMessage) any {
+	var alias struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+	}
+	if json.Unmarshal(raw, &alias) == nil && alias.Type == "VARIABLE_ALIAS" {
+		return map[string]string{"alias": alias.ID}
+	}
+	var c figma.Color
+	var probe map[string]any
+	if json.Unmarshal(raw, &probe) == nil && probe["r"] != nil && json.Unmarshal(raw, &c) == nil {
+		return simplify.CSSColor(c)
+	}
+	var v any
+	_ = json.Unmarshal(raw, &v)
+	return v
+}
+
+func registerComments(root *cobra.Command, globals *shared.GlobalFlags) {
+	var asMarkdown bool
+	group := &cobra.Command{Use: "comments", Short: "File comments (read-only)"}
+	list := &cobra.Command{
 		Use:   "list <ref>",
-		Short: "List versions, newest first (Tier 2, paginated)",
+		Short: "List a file's comments, with the node each is pinned to (Tier 2)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fileRead(cmd, globals, args[0], nil, func(ctx context.Context, r *shared.Resolved, ref figmaurl.Ref, stream *output.Stream) error {
-				q := url.Values{"page_size": {strconv.Itoa(limit)}}
-				if cursor != "" {
-					q.Set("before", cursor)
+			return fileRead(cmd, globals, args[0], nil, func(ctx context.Context, s *fetch.Session, stream *output.Stream) error {
+				q := url.Values{}
+				if asMarkdown {
+					q.Set("as_md", "true")
 				}
-				raw, err := r.Client.Get(ctx, "/v1/files/"+ref.Key()+"/versions", q)
+				raw, err := s.Client.Get(ctx, "/v1/files/"+s.Key()+"/comments", q)
 				if err != nil {
 					return err
 				}
 				resp, err := api.Decode[struct {
-					Versions   []map[string]any `json:"versions"`
+					Comments []struct {
+						ID         string     `json:"id"`
+						Message    string     `json:"message"`
+						CreatedAt  string     `json:"created_at"`
+						ResolvedAt string     `json:"resolved_at"`
+						ParentID   string     `json:"parent_id"`
+						OrderID    any        `json:"order_id"`
+						User       figma.User `json:"user"`
+						ClientMeta struct {
+							NodeID string `json:"node_id"`
+						} `json:"client_meta"`
+					} `json:"comments"`
+				}](raw, "comments")
+				if err != nil {
+					return err
+				}
+				for _, c := range resp.Comments {
+					stream.Item(pruned(map[string]any{
+						"id": c.ID, "message": c.Message, "created_at": c.CreatedAt, "resolved_at": c.ResolvedAt,
+						"parent_id": c.ParentID, "order_id": c.OrderID, "user": c.User.Handle, "node_id": c.ClientMeta.NodeID,
+					}))
+				}
+				return nil
+			})
+		},
+	}
+	list.Flags().BoolVar(&asMarkdown, "as-md", false, "Return comment text as markdown")
+	group.AddCommand(list)
+	root.AddCommand(group)
+}
+
+func registerVersions(root *cobra.Command, globals *shared.GlobalFlags) {
+	var limit int
+	var cursor string
+	group := &cobra.Command{Use: "versions", Short: "File version history"}
+	list := &cobra.Command{
+		Use:   "list <ref>",
+		Short: "List versions, newest first (Tier 2, paginated)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return fileRead(cmd, globals, args[0], nil, func(ctx context.Context, s *fetch.Session, stream *output.Stream) error {
+				q := url.Values{"page_size": {strconv.Itoa(limit)}}
+				if cursor != "" {
+					q.Set("before", cursor)
+				}
+				raw, err := s.Client.Get(ctx, "/v1/files/"+s.Key()+"/versions", q)
+				if err != nil {
+					return err
+				}
+				resp, err := api.Decode[struct {
+					Versions []struct {
+						ID          string     `json:"id"`
+						CreatedAt   string     `json:"created_at"`
+						Label       string     `json:"label"`
+						Description string     `json:"description"`
+						User        figma.User `json:"user"`
+					} `json:"versions"`
 					Pagination struct {
 						NextPage string `json:"next_page"`
 					} `json:"pagination"`
@@ -166,37 +247,35 @@ func registerReads(root *cobra.Command, globals *shared.GlobalFlags) {
 					return err
 				}
 				for _, v := range resp.Versions {
-					rec := pick(v, "id", "created_at", "label", "description")
-					if u, ok := v["user"].(map[string]any); ok {
-						rec["user"] = u["handle"]
-					}
-					stream.Item(rec)
+					stream.Item(pruned(map[string]any{"id": v.ID, "created_at": v.CreatedAt, "label": v.Label, "description": v.Description, "user": v.User.Handle}))
 				}
 				if next := pageCursor(resp.Pagination.NextPage); next != "" {
-					stream.Meta(output.MetaPagination, map[string]any{"has_more": true, "next_cursor": next})
+					stream.Meta(output.MetaPagination, output.Pagination{HasMore: true, NextCursor: next})
 				}
 				return nil
 			})
 		},
 	}
-	versionsList.Flags().IntVar(&limit, "limit", 30, "Versions per page (max 50)")
-	versionsList.Flags().StringVar(&cursor, "cursor", "", "next_cursor from a previous page")
-	versions.AddCommand(versionsList)
-	root.AddCommand(versions)
+	list.Flags().IntVar(&limit, "limit", 30, "Versions per page (max 50)")
+	list.Flags().StringVar(&cursor, "cursor", "", "next_cursor from a previous page")
+	group.AddCommand(list)
+	root.AddCommand(group)
+}
 
-	var devNodes []string
-	dev := &cobra.Command{Use: "dev-resources", Short: "Dev Mode resources (links attached to nodes)"}
-	devList := &cobra.Command{
+func registerDevResources(root *cobra.Command, globals *shared.GlobalFlags) {
+	var nodes []string
+	group := &cobra.Command{Use: "dev-resources", Short: "Dev Mode resources (links attached to nodes)"}
+	list := &cobra.Command{
 		Use:   "list <ref>",
 		Short: "List dev resources, optionally only for --node (Tier 2; needs the main file key)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fileRead(cmd, globals, args[0], devNodes, func(ctx context.Context, r *shared.Resolved, ref figmaurl.Ref, stream *output.Stream) error {
+			return fileRead(cmd, globals, args[0], nodes, func(ctx context.Context, s *fetch.Session, stream *output.Stream) error {
 				q := url.Values{}
-				if len(ref.NodeIDs) > 0 {
-					q.Set("node_ids", joinComma(ref.NodeIDs))
+				if len(s.Ref.NodeIDs) > 0 {
+					q.Set("node_ids", strings.Join(s.Ref.NodeIDs, ","))
 				}
-				raw, err := r.Client.Get(ctx, "/v1/files/"+ref.FileKey+"/dev_resources", q)
+				raw, err := s.Client.Get(ctx, "/v1/files/"+s.MainKey()+"/dev_resources", q)
 				if err != nil {
 					return err
 				}
@@ -213,45 +292,15 @@ func registerReads(root *cobra.Command, globals *shared.GlobalFlags) {
 			})
 		},
 	}
-	devList.Flags().StringArrayVar(&devNodes, "node", nil, "Only resources on these node ids")
-	dev.AddCommand(devList)
-	root.AddCommand(dev)
+	list.Flags().StringArrayVar(&nodes, "node", nil, "Only resources on these node ids")
+	group.AddCommand(list)
+	root.AddCommand(group)
 }
-
-// pick copies the named, non-null fields.
-func pick(m map[string]any, keys ...string) map[string]any {
-	out := map[string]any{}
-	for _, k := range keys {
-		if v, ok := m[k]; ok && v != nil && v != "" {
-			out[k] = v
-		}
-	}
-	return out
-}
-
-func str(v any) string {
-	s, _ := v.(string)
-	return s
-}
-
-func sortedAnyKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
-}
-
-func joinComma(ids []string) string { return strings.Join(ids, ",") }
 
 // pageCursor extracts the "before" cursor from Figma's next_page URL.
 func pageCursor(next string) string {
-	if next == "" {
-		return ""
-	}
 	u, err := url.Parse(next)
-	if err != nil {
+	if next == "" || err != nil {
 		return ""
 	}
 	return u.Query().Get("before")

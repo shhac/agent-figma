@@ -138,12 +138,7 @@ func writeLocalComponents(stream *output.Stream, store *cache.NodeStore, publish
 	for _, s := range publishedSets {
 		known[s.NodeID] = true
 	}
-	ids := make([]string, 0, len(store.ComponentSets))
-	for id := range store.ComponentSets {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
-	for _, id := range ids {
+	for _, id := range sortedKeys(store.ComponentSets) {
 		set := store.ComponentSets[id]
 		if known[id] || set.Remote {
 			continue
@@ -160,12 +155,7 @@ func writeLocalComponents(stream *output.Stream, store *cache.NodeStore, publish
 		rec["variants"] = vs
 		stream.Item(rec)
 	}
-	cids := make([]string, 0, len(store.Components))
-	for id := range store.Components {
-		cids = append(cids, id)
-	}
-	slices.Sort(cids)
-	for _, id := range cids {
+	for _, id := range sortedKeys(store.Components) {
 		c := store.Components[id]
 		if known[id] || c.Remote || c.ComponentSetID != "" {
 			continue

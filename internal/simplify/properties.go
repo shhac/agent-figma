@@ -330,3 +330,6 @@ func reverse(marker string) string {
 	}
 	return string(r)
 }
+
+// CSSColor renders a Figma colour the way node records do (#RRGGBB, or rgba).
+func CSSColor(c figma.Color) string { return color(c, 1) }

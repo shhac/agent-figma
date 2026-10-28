@@ -34,6 +34,9 @@ const (
 	MetaPagination = out.MetaKeyPagination
 )
 
+// Pagination is the family's @pagination shape.
+type Pagination = out.Pagination
+
 var (
 	writersMu sync.RWMutex
 	stdout    io.Writer = os.Stdout

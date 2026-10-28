@@ -381,12 +381,3 @@ func exportScale(n figma.Node, s figma.ExportSetting) float64 {
 	}
 	return math.Min(math.Max(math.Round(scale*1000)/1000, 0.01), 4)
 }
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
-}

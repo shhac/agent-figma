@@ -192,7 +192,7 @@ func registerNodesFind(parent *cobra.Command, globals *shared.GlobalFlags) {
 				pattern := strings.ToLower(name)
 				matches := 0
 				var incomplete []string
-				for _, id := range sortedIDs(store) {
+				for _, id := range sortedKeys(store.Nodes) {
 					stored := store.Nodes[id]
 					n, ok := store.Node(id)
 					if !ok {
@@ -240,15 +240,6 @@ func registerNodesFind(parent *cobra.Command, globals *shared.GlobalFlags) {
 	cmd.Flags().StringVar(&page, "page", "", "Only nodes on the page with this name")
 	cmd.Flags().IntVar(&limit, "limit", 100, "Most matches to print")
 	parent.AddCommand(cmd)
-}
-
-func sortedIDs(store *cache.NodeStore) []string {
-	ids := make([]string, 0, len(store.Nodes))
-	for id := range store.Nodes {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
-	return ids
 }
 
 func firstN(ids []string, n int) []string {

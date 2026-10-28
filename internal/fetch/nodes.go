@@ -66,7 +66,7 @@ func (s *Session) Nodes(ctx context.Context, ids []string, depth int) (*NodesRes
 	if s.prefetching() {
 		extras = relatedIDs(known, need, s.cachedVariantSets(version), maxNodeExtras)
 	}
-	result, err := s.fetchNodes(ctx, need, extras, depth)
+	result, err := s.fetchNodes(ctx, need, extras, depth, "")
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (s *Session) Document(ctx context.Context, depth int) (*cache.NodeStore, er
 		if err != nil {
 			return nil, err
 		}
-		return s.storeFile(resp, nil, d)
+		return s.storeFile(resp, nil, d, "")
 	}
 }
 
@@ -155,16 +155,18 @@ func (s *Session) knownStore(version string) *cache.NodeStore {
 	return cache.NewNodeStore(version)
 }
 
-func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth int) (*NodesResult, error) {
+// fetchNodes fetches need (and the speculative extras) at version, or at the
+// current version when version is empty.
+func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth int, version string) (*NodesResult, error) {
 	if depth != cache.Full {
-		return s.fetchNodesEndpoint(ctx, need, extras, depth)
+		return s.fetchNodesEndpoint(ctx, need, extras, depth, version)
 	}
 	resp, extras, err := withExtras(need, extras, func(ids []string) (*figma.FileResponse, error) {
-		return s.getFile(ctx, query("ids", joinIDs(ids)))
+		return s.getFile(ctx, query("ids", joinIDs(ids), "version", version))
 	})
 	if api.IsRequestTooLarge(err) {
 		for _, d := range []int{4, 2, 1} {
-			res, nerr := s.fetchNodesEndpoint(ctx, need, nil, d)
+			res, nerr := s.fetchNodesEndpoint(ctx, need, nil, d, version)
 			if api.IsRequestTooLarge(nerr) {
 				continue
 			}
@@ -178,7 +180,7 @@ func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth i
 	if err != nil {
 		return nil, err
 	}
-	store, err := s.storeFile(resp, append(append([]string{}, need...), extras...), cache.Full)
+	store, err := s.storeFile(resp, append(append([]string{}, need...), extras...), cache.Full, version)
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +188,9 @@ func (s *Session) fetchNodes(ctx context.Context, need, extras []string, depth i
 	return &NodesResult{Store: store}, nil
 }
 
-func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string, depth int) (*NodesResult, error) {
+func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string, depth int, version string) (*NodesResult, error) {
 	get := func(ids []string) (*figma.NodesResponse, error) {
-		raw, err := s.Client.Get(ctx, "/v1/files/"+s.Key()+"/nodes", query("ids", joinIDs(ids), "depth", depthParam(depth)))
+		raw, err := s.Client.Get(ctx, "/v1/files/"+s.Key()+"/nodes", query("ids", joinIDs(ids), "depth", depthParam(depth), "version", version))
 		if err != nil {
 			return nil, err
 		}
@@ -209,8 +211,10 @@ func (s *Session) fetchNodesEndpoint(ctx context.Context, need, extras []string,
 	if err != nil {
 		return nil, cacheError(err)
 	}
-	s.recordVersion(resp.Version, resp.Name)
-	s.noteStore(store, false, "")
+	if version == "" {
+		s.recordVersion(resp.Version, resp.Name)
+		s.noteStore(store, false, "")
+	}
 	s.Prefetched.Nodes += countNew(store, extras)
 	return &NodesResult{Store: store}, nil
 }
@@ -227,15 +231,19 @@ func (s *Session) getFile(ctx context.Context, q map[string][]string) (*figma.Fi
 	return &resp, nil
 }
 
-func (s *Session) storeFile(resp *figma.FileResponse, requested []string, depth int) (*cache.NodeStore, error) {
+// storeFile merges a file response. A response for a pinned (older) version
+// is stored under it without moving the file's head.
+func (s *Session) storeFile(resp *figma.FileResponse, requested []string, depth int, pinned string) (*cache.NodeStore, error) {
 	store, err := s.File.UpdateNodes(s.versionOf(resp.Version), func(st *cache.NodeStore) error {
 		return st.MergeFile(resp, requested, depth)
 	})
 	if err != nil {
 		return nil, cacheError(err)
 	}
-	s.recordVersion(resp.Version, resp.Name)
-	s.noteStore(store, false, "")
+	if pinned == "" {
+		s.recordVersion(resp.Version, resp.Name)
+		s.noteStore(store, false, "")
+	}
 	return store, nil
 }
 
@@ -305,4 +313,45 @@ func (s *Session) Searchable(ctx context.Context) (*cache.NodeStore, error) {
 		return store, err
 	}
 	return s.Document(ctx, 2)
+}
+
+// NodesAt makes sure each id's full subtree is cached at an exact version,
+// fetching with ?version= if it is not. It never moves the file's head.
+func (s *Session) NodesAt(ctx context.Context, ids []string, version string) (*cache.NodeStore, error) {
+	store, err := s.File.LoadNodes(version)
+	if err == nil && hasAll(store, ids) {
+		s.CacheHits++
+		return store, nil
+	}
+	if s.Opts.Offline {
+		return nil, offlineMiss()
+	}
+	res, err := s.fetchNodes(ctx, ids, nil, cache.Full, version)
+	if err != nil {
+		return nil, err
+	}
+	return res.Store, nil
+}
+
+// PreviousVersion is the newest cached version older than current whose
+// store holds every id's full subtree, or "" when none does.
+func (s *Session) PreviousVersion(current string, ids []string) string {
+	for _, v := range s.File.Versions() {
+		if v == current {
+			continue
+		}
+		if st, err := s.File.LoadNodes(v); err == nil && hasAll(st, ids) {
+			return v
+		}
+	}
+	return ""
+}
+
+func hasAll(store *cache.NodeStore, ids []string) bool {
+	for _, id := range ids {
+		if !store.Has(id, cache.Full) {
+			return false
+		}
+	}
+	return true
 }

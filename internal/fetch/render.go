@@ -42,6 +42,8 @@ type RenderRequest struct {
 	URLOnly bool
 	// Source labels the images ("render" or "export").
 	Source string
+	// Version renders an exact file version instead of the current one.
+	Version string
 }
 
 func (r RenderRequest) scale() float64 {
@@ -94,12 +96,17 @@ func (s *Session) Render(ctx context.Context, req RenderRequest) (*RenderResult,
 	if err := req.validate(); err != nil {
 		return nil, err
 	}
-	version, err := s.CurrentVersion(ctx)
-	if err != nil {
-		return nil, err
+	version := req.Version
+	if version == "" {
+		v, err := s.CurrentVersion(ctx)
+		if err != nil {
+			return nil, err
+		}
+		version = v
 	}
 	known := s.knownStore(version)
 	view := s.renderView(version, req)
+	var err error
 	need := view.missing(req.IDs)
 	var related []string
 	if s.prefetching() {
@@ -279,7 +286,7 @@ func (s *Session) renderRelated(known *cache.NodeStore, req RenderRequest) []str
 
 func (s *Session) requestRenders(ctx context.Context, req RenderRequest, need, extras []string) (map[string]*string, error) {
 	call := func(ids []string) (map[string]*string, error) {
-		q := query("ids", joinIDs(ids), "format", req.Format, "scale", strconv.FormatFloat(req.scale(), 'f', -1, 64))
+		q := query("ids", joinIDs(ids), "format", req.Format, "scale", strconv.FormatFloat(req.scale(), 'f', -1, 64), "version", req.Version)
 		if req.Format == "svg" {
 			q.Set("svg_outline_text", strconv.FormatBool(req.SVGOutlineText))
 			q.Set("svg_include_id", strconv.FormatBool(req.SVGIncludeID))

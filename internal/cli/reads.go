@@ -183,20 +183,7 @@ func registerComments(root *cobra.Command, globals *shared.GlobalFlags) {
 				if err != nil {
 					return err
 				}
-				resp, err := api.Decode[struct {
-					Comments []struct {
-						ID         string     `json:"id"`
-						Message    string     `json:"message"`
-						CreatedAt  string     `json:"created_at"`
-						ResolvedAt string     `json:"resolved_at"`
-						ParentID   string     `json:"parent_id"`
-						OrderID    any        `json:"order_id"`
-						User       figma.User `json:"user"`
-						ClientMeta struct {
-							NodeID string `json:"node_id"`
-						} `json:"client_meta"`
-					} `json:"comments"`
-				}](raw, "comments")
+				resp, err := api.Decode[figma.CommentsResponse](raw, "comments")
 				if err != nil {
 					return err
 				}

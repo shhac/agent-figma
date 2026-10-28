@@ -197,21 +197,8 @@ func Annotations(store *cache.NodeStore, id string) []Note {
 	return out
 }
 
-// Comment is a Figma comment as the comments endpoint returns it.
-type Comment struct {
-	ID         string     `json:"id"`
-	Message    string     `json:"message"`
-	CreatedAt  string     `json:"created_at"`
-	ResolvedAt string     `json:"resolved_at"`
-	ParentID   string     `json:"parent_id"`
-	User       figma.User `json:"user"`
-	ClientMeta struct {
-		NodeID string `json:"node_id"`
-	} `json:"client_meta"`
-}
-
 // Comments are the threads pinned to id or a descendant, replies attached.
-func Comments(store *cache.NodeStore, id string, all []Comment) []Note {
+func Comments(store *cache.NodeStore, id string, all []figma.Comment) []Note {
 	inside := map[string]bool{}
 	store.WalkVisible([]string{id}, func(nid string, _ figma.Node) { inside[nid] = true })
 	threads := map[string]*Note{}
@@ -237,6 +224,6 @@ func Comments(store *cache.NodeStore, id string, all []Comment) []Note {
 	return out
 }
 
-func commentNote(c Comment) Note {
+func commentNote(c figma.Comment) Note {
 	return Note{Source: SourceComment, Text: strings.TrimSpace(c.Message), Author: c.User.Handle, CreatedAt: c.CreatedAt, Resolved: c.ResolvedAt != ""}
 }

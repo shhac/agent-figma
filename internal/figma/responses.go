@@ -127,3 +127,22 @@ type ContainingFrame struct {
 		Name   string `json:"name"`
 	} `json:"containingComponentSet,omitempty"`
 }
+
+// Comment is one entry of GET /v1/files/:key/comments. A reply has a
+// ParentID; a thread's root carries the node it is pinned to.
+type Comment struct {
+	ID         string `json:"id"`
+	Message    string `json:"message"`
+	CreatedAt  string `json:"created_at"`
+	ResolvedAt string `json:"resolved_at"`
+	ParentID   string `json:"parent_id"`
+	OrderID    any    `json:"order_id"`
+	User       User   `json:"user"`
+	ClientMeta struct {
+		NodeID string `json:"node_id"`
+	} `json:"client_meta"`
+}
+
+type CommentsResponse struct {
+	Comments []Comment `json:"comments"`
+}
